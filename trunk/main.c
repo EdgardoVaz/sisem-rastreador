@@ -45,6 +45,7 @@ information from Jean J. Labrosse pertaining to version 2.51 of uCOS-II.
 //#define CINBUFSIZE  15
 #define BPS 19200
 
+prueba
 
 #define OS_MAX_TASKS		3
 #define OS_MAX_EVENTS	3
