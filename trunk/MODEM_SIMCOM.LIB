@@ -350,7 +350,7 @@ int Respuesta_Modem(char *string_esperado, char *resp, int timeout){
 		}
 
       resp[ind] = recibido; //almaceno cada caracter que llega
-      txt_msj[ind] = recibido;
+      //txt_msj[ind] = recibido;
       ind++;
 
       if(recibido == string_esperado[indice])
@@ -499,15 +499,16 @@ END DESCRIPTION **********************************************************/
 
 int Recibir_SMS(char *ind_msj){
 
-	auto char *CMD_CMGR;
-   CMD_CMGR="AT+CMGR=";                    //comando AT para recibir SMS
+	static char CMD_CMGR[15];
+   strcpy(CMD_CMGR,"AT+CMGR=");
+   //CMD_CMGR="AT+CMGR=";                    //comando AT para recibir SMS
    *(CMD_CMGR+8)=*ind_msj;
    *(CMD_CMGR+9)=*(ind_msj+1);
   *(CMD_CMGR+10)=*(ind_msj+2);
   *(CMD_CMGR+11)=*(ind_msj+3);
    //strcat(CMD_CMGR, ind_msj);              //concateno ambos strings
    Enviar_Msj(CMD_CMGR);
-   if(!Respuesta_Modem(ESPERO_OK,txt_msj, TIEMPO))
+   if(Respuesta_Modem(ESPERO_OK,txt_msj, TIEMPO)==ERR_TIEMPO)
       return ERR_TIEMPO;                   //ocurrio un error
       else return RESP_OK;
 
