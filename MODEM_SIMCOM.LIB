@@ -1,0 +1,639 @@
+/*** BeginHeader Modem_SIMCOM */
+
+#define CINBUFSIZE 255
+#define COUTBUFSIZE 255
+#define TIEMPO 100
+#define TAMAÑO 400
+#define ERR_TIEMPO 11
+#define ERR_MODO_TXT 21
+#define ERR_PROMPT 31
+#define ERR_CONFIG 41
+#define RESP_OK 51
+#define PARAM_OK 103
+#define ERR_PARAM 104
+
+static const char CMD_MODO_TEXTO[]="AT+CMGF=1\r";
+static const char CMD_BORRAR[]="AT+CMGD=1\r";
+static const char CMD_LISTA[]="AT+CMGL=\"ALL\"\r";
+static const char BATERIA[]="AT+CBC\r";
+
+static const char ESPERO_OK[]="OK\r\n";
+static const char MSJ_ERR_PARAM[]="Parametro\nincorrecto\n\032"; //Ctrol-Z = \032
+static const char MSJ_COORD[]="Latitud: \nLongitud: \nTiempo: \n\032";
+char respuesta[TAMAÑO];
+char txt_msj[TAMAÑO];
+char *num_cel;
+/*** EndHeader */
+
+
+
+/*** BeginHeader Config_ParaleloC */
+void Config_ParaleloC();
+/*** EndHeader */
+
+/* START FUNCTION DESCRIPTION ********************************************
+Config_ParaleloC                                 <Modem_SIMCOM.LIB>
+
+SYNTAX:			int Config_ParaleloC();
+
+DESCRIPTION: 	Configura puerto paralelo C, funcion normal de entrada-salida
+					de los pines 4 y 5.
+
+END DESCRIPTION **********************************************************/
+
+void Config_ParaleloC(){
+
+	WrPortI(PCFR, &PCFRShadow, (PCFRShadow & 0xCF));
+
+   WrPortI(PCDDR, &PCDDRShadow, (0x20 | PCDDRShadow));//PC5=salida
+   WrPortI(PCDDR, &PCDDRShadow, (PCDDRShadow & ~0x10));//PC4=entrada
+
+   BitWrPortI(PCDR, &PCDRShadow, 0, 5);  //PC5 a 0
+   BitWrPortI(PCDR, &PCDRShadow, 0, 4);  //PC4 a 0, entrada conectada a DCD
+
+}
+/*************************************************************************/
+
+
+
+/*** BeginHeader Config_ParaleloE */
+void Config_ParaleloE();
+/*** EndHeader */
+
+/* START FUNCTION DESCRIPTION ********************************************
+Config_ParaleloE                                 <Modem_SIMCOM.LIB>
+
+SYNTAX:			int Config_ParaleloE();
+
+DESCRIPTION: 	Configura puerto paralelo E, funcion normal de entrada-salida
+
+END DESCRIPTION **********************************************************/
+
+void Config_ParaleloE(){
+
+   WrPortI(PEDR, NULL, 0x01); //| RdPortI(PEDR));  //PE0 a 1
+
+   WrPortI(PEFR, &PEFRShadow, 0x00);     //Puerto paraleloE como entrada salida
+
+   WrPortI(PEDDR, &PEDDRShadow, 0x01);// | PEDDRShadow);//PE0=salida, PE1=entrada
+
+}
+/*************************************************************************/
+
+
+
+/*** BeginHeader Encendido_Modem */
+void Encendido_Modem();
+/*** EndHeader */
+
+/* START FUNCTION DESCRIPTION ********************************************
+Encendido_Modem                                 <Modem_SIMCOM.LIB>
+
+SYNTAX:			void Encendido_Modem();
+
+DESCRIPTION: 	Enciende el modem SIMCOM
+
+END DESCRIPTION **********************************************************/
+
+void Encendido_Modem(){
+
+   esperar(3500); //espera de 3500ms en el encendido
+
+   WrPortI(PEDR, NULL, 0xFE & RdPortI(PEDR));  //PE0=0 durante 2000ms para encender el modem
+   esperar(2000);
+
+   WrPortI(PEDR, NULL, 0x01 | RdPortI(PEDR));  //vuelvo PE0 a 1
+
+   //WrPortI(PEDDR, &PEDDRShadow, 0x03 | RdPortI(PEDDR)); // PE0=salida, PE1=salida para poder leer este bit
+
+   //WrPortI(PEDDR, &PEDDRShadow, 0xFD & RdPortI(PEDDR)); // vuelve PE1=entrada
+
+   return;
+}
+/*************************************************************************/
+
+
+
+/*** BeginHeader Apagado_Modem */
+void Apagado_Modem();
+/*** EndHeader */
+
+/* START FUNCTION DESCRIPTION ********************************************
+Apagado_Modem                                 <Modem_SIMCOM.LIB>
+
+SYNTAX:			void Apagado_Modem();
+
+DESCRIPTION: 	Apaga el modem SIMCOM
+
+END DESCRIPTION **********************************************************/
+
+void Apagado_Modem(){
+
+   auto word t;
+
+   WrPortI(PEDR, NULL, 0xFE & RdPortI(PEDR));  //PE0=0 durante 750ms para apagar el modem
+   esperar(750);
+
+   WrPortI(PEDR, NULL, 0x01 | RdPortI(PEDR));  //vuelvo PE0 a 1
+
+}
+/*************************************************************************/
+
+
+
+/*** BeginHeader Config_serC */
+void Config_serC(int bps);
+/*** EndHeader */
+
+/* START FUNCTION DESCRIPTION ********************************************
+Config_serC                               <Modem_SIMCOM.LIB>
+
+SYNTAX:			void Config_serC(int bps);
+
+DESCRIPTION: 	Configura el puerto serie C para comunicacion con el modem
+
+PARAMETER1:		El baud rate para comunicarse con el modem (300 a 115200 bps)
+
+END DESCRIPTION **********************************************************/
+
+void Config_serC(int bps){
+
+
+   serCopen(bps);
+   serCwrFlush();
+   serCrdFlush();
+
+   //TxC a 1, pronto para transmitir
+	BitWrPortI(PCDR, &PCDRShadow, 1, 2);
+
+}
+/*************************************************************************/
+
+
+
+/*** BeginHeader Inicio_Modem */
+void Inicio_Modem(int bps);
+/*** EndHeader */
+
+/* START FUNCTION DESCRIPTION ********************************************
+Inicio_Modem                              <Modem_SIMCOM.LIB>
+
+SYNTAX:			void Inicio_Modem(int bps);
+
+DESCRIPTION: 	Inicializa puertos, enciende modem y espera que se registre en
+					la red celular.
+
+PARAMETER1:		El baud rate para comunicarse con el modem (300 a 115200 bps)
+
+
+END DESCRIPTION **********************************************************/
+
+void Inicio_Modem(int bps){
+
+			static const char READY[]="Call Ready\r\n";
+
+
+        	Config_ParaleloE();
+      	Config_ParaleloC();
+         Config_serC(BPS);
+         Encendido_Modem();
+         esperar(10000);    //espero 10 seg antes de usar el puerto serie
+         serCread(respuesta, 12, TIEMPO);
+         while(!Registrado());
+
+}
+/*************************************************************************/
+
+
+
+/*** BeginHeader ModoSleep */
+void ModoSleep(int dtr);
+/*** EndHeader */
+
+/* START FUNCTION DESCRIPTION ********************************************
+ModoSleep                                 <Modem_SIMCOM.LIB>
+
+SYNTAX:			void ModoSleep(int dtr);
+
+DESCRIPTION: 	Activar o desactivar modo Sleep a traves de linea DTR
+
+PARAMETER1:    0 - DTR Desactiva Modo Sleep
+					1 - DTR Activa Modo Sleep
+
+
+END DESCRIPTION **********************************************************/
+
+int ModoSleep(int dtr){
+
+	//PC5 es la linea DTR - activa por bajo
+	BitWrPortI(PCDR, &PCDRShadow, dtr, 5);
+}
+/*************************************************************************/
+
+
+
+/*** BeginHeader Conectado */
+int Conectado();
+/*** EndHeader */
+
+/* START FUNCTION DESCRIPTION ********************************************
+Conectado                                 <Modem_SIMCOM.LIB>
+
+SYNTAX:			int Conectado();
+
+DESCRIPTION: 	Verifica si el modem esta conectado a la red celular (portadora)
+
+RETURN VALUE:	1 - Linea DCD activa
+					0 - Linea DCD inactiva (nada conectado)
+
+END DESCRIPTION **********************************************************/
+
+int Conectado(){
+
+   int estado;
+	//PC4 es la linea DCD - activa por bajo
+   WrPortI(PCDDR, &PCDDRShadow, (0x10 | PCDDRShadow));//PC4=salida
+   //estado = !BitRdPortI(PCDR, 4);
+
+   WrPortI(PCDDR, &PCDDRShadow, (0xEF & PCDDRShadow));//PC4=entrada
+
+   return 1;
+}
+/*************************************************************************/
+
+
+
+/*** BeginHeader Ring */
+int Ring();
+/*** EndHeader */
+
+/* START FUNCTION DESCRIPTION ********************************************
+Ring                                 <Modem_SIMCOM.LIB>
+
+SYNTAX:			int Ring();
+
+DESCRIPTION: 	Indica que hay una llamada entrante o que ha llegado un SMS.
+
+RETURN VALUE:	1 - RI line is active
+					0 - RI inactive (nothing connected)
+END DESCRIPTION **********************************************************/
+
+int Ring(){
+
+	//PE4 es linea RI - activa por bajo
+   return !BitRdPortI(PEDR, 4);
+}
+/*************************************************************************/
+
+
+
+/*** BeginHeader Enviar_Msj */
+void Enviar_Msj(char *mensaje);
+/*** EndHeader */
+
+/* START FUNCTION DESCRIPTION ********************************************
+Enviar_Msj                                 <Modem_SIMCOM.LIB>
+
+SYNTAX:			void Enviar_Msj(char *mensaje);
+
+DESCRIPTION: 	Envia mensaje al modem a traves del puerto serial C.
+					El fin del mensaje es indicado con el cartacter nulo (\0).
+
+PARAMETER1:		String que termina en un caracter nulo (\0)
+
+END DESCRIPTION **********************************************************/
+
+void Enviar_Msj(char *mensaje){
+
+	serCputs(mensaje);
+}
+/*************************************************************************/
+
+
+
+/*** BeginHeader Respuesta_Modem */
+int Respuesta_Modem(char *string_esperado, char *respuesta, int timeout);
+/*** EndHeader */
+
+/* START FUNCTION DESCRIPTION ********************************************
+Respuesta_Modem                                 <Modem_SIMCOM.LIB>
+
+SYNTAX:			int Respuesta_Modem(char *string_esperado, char *respuesta, int timeout);
+
+DESCRIPTION: 	Espera a que llegue determinada respuesta del modem.
+
+PARAMETER1:		String que se espera obtener (termina en el caracter nulo (\0))
+PARAMETER2:		String que devuelve el modem como respuesta.
+PARAMETER3:		Maximo tiempo de espera para un caracter.
+
+RETURN VALUE:	RESP_OK - El string llego con exito
+					ERR_TIEMPO - Se acabo el tiempo de espera
+
+END DESCRIPTION **********************************************************/
+
+int Respuesta_Modem(char *string_esperado, char *resp, int timeout){
+
+	auto int largo_esperado, indice, ind;
+	auto unsigned long t;
+	auto int recibido;
+
+	largo_esperado = strlen(string_esperado);
+	indice=ind=0;
+
+	while(indice < largo_esperado){
+
+      t = _SET_TIMEOUT(timeout);
+		while((recibido = serCgetc()) < 0){
+
+			if (_CHK_TIMEOUT(t))
+				return ERR_TIEMPO;		//no llego caracter antes del timeout
+		}
+
+      resp[ind] = recibido; //almaceno cada caracter que llega
+      txt_msj[ind] = recibido;
+      ind++;
+
+      if(recibido == string_esperado[indice])
+		{
+      	indice++;
+		}
+		else
+		{
+			indice = 0; //caracter no valido, se vulve a buscar
+		}
+	}
+   return RESP_OK;
+}
+/*************************************************************************/
+
+
+
+/*** BeginHeader esperar */
+void esperar(int tiempo);
+/*** EndHeader */
+
+/* START FUNCTION DESCRIPTION ********************************************
+esperar                                 <Modem_SIMCOM.LIB>
+
+SYNTAX:			void esperar(int tiempo);
+
+DESCRIPTION: 	Espera el tiempo pasado como parametro en milisegundos.
+
+PARAMETER1:		Tiempo de espera en milisegundos.
+
+END DESCRIPTION **********************************************************/
+
+void esperar(int tiempo){
+
+   auto word t;
+
+   t = _SET_SHORT_TIMEOUT(tiempo);
+	while(!_CHK_SHORT_TIMEOUT(t));
+
+   return;
+}
+/*************************************************************************/
+
+
+
+/*** BeginHeader Registrado */
+int Registrado();
+/*** EndHeader */
+
+/* START FUNCTION DESCRIPTION ********************************************
+Registrado                                 <Modem_SIMCOM.LIB>
+
+SYNTAX:			int Registrado(char *dato);
+
+DESCRIPTION: 	Indica que el modem esta conectado en la red celular.
+
+RETURN VALUE:	1 - Registrado
+					0 - No registrado
+
+END DESCRIPTION **********************************************************/
+
+int Registrado(){
+
+   static const char CMD_CREG[]="AT+CREG?\r";
+   static const char ESPERO_OK[]="OK\r\n";
+   static const char CREG[]="+CREG: 0,1";
+
+
+   Enviar_Msj(CMD_CREG);
+   Respuesta_Modem(ESPERO_OK, respuesta, TIEMPO);
+   if(strstr(respuesta,CREG)== '\0')
+     	return 0;
+      else return 1;
+}
+/*************************************************************************/
+
+
+
+/*** BeginHeader Enviar_SMS */
+int Enviar_SMS(char *numero, char *sms);
+/*** EndHeader */
+
+/* START FUNCTION DESCRIPTION ********************************************
+Enviar_SMS                                 <Modem_SIMCOM.LIB>
+
+SYNTAX:			int Enviar_SMS(char *numero, char *sms);
+
+DESCRIPTION: 	Envia un SMS al numero indicado.
+
+PARAMETER1:		Numero al cual se envia el mensaje SMS.
+PARAMETER2:    Texto del mensaje a enviar.
+
+RETURN VALUE:	RESP_OK - Mensaje enviado.
+					ERR_TIEMPO - Mensaje no enviado.
+               ERR_PROMPT - Mensaje no enviado.
+
+END DESCRIPTION **********************************************************/
+
+int Enviar_SMS(char *numero, char *sms){
+
+	static const char PROMPT[]=">";
+   auto char *CMD_CMGS;
+   int dly,j;
+   dly = 0;
+   CMD_CMGS="AT+CMGS=";                   //comando AT para enviar SMS
+
+   for(j=0;j<16;j++){
+   *(CMD_CMGS+8+j)=*(numero+j);
+   }
+   //strcat(CMD_CMGS, numero);              //concateno ambos strings
+   Enviar_Msj(CMD_CMGS);                  //comando AT+CMGS="+59898674910"\r
+   if(!Respuesta_Modem(PROMPT, respuesta, TIEMPO))
+   	return ERR_PROMPT;                  //ocurrio un error
+
+   Enviar_Msj(sms);
+   while(dly < 50*TIEMPO){
+   	if(Respuesta_Modem(ESPERO_OK, respuesta, TIEMPO) == ERR_TIEMPO)
+         dly += TIEMPO;
+   	else return RESP_OK;
+
+   }
+   return ERR_TIEMPO;                    //ocurrio un error
+}
+/*************************************************************************/
+
+
+
+/*** BeginHeader Recibir_SMS */
+int Recibir_SMS(char *ind_msj);
+/*** EndHeader */
+
+/* START FUNCTION DESCRIPTION ********************************************
+Recibir_SMS                                 <Modem_SIMCOM.LIB>
+
+SYNTAX:			int Recibir_SMS(char *ind_msj);
+
+DESCRIPTION: 	Recibe el identificador de un nuevo mensaje SMS y devuelve en
+					un puntero el texto del mensaje incluyendo el encabezado.
+
+PARAMETER1:    Numero de mensaje recibido("REC UNREAD").
+
+RETURN VALUE:	RESP_OK - Mensaje recibido.
+					ERR_TIEMPO - Mensaje no recibido.
+
+END DESCRIPTION **********************************************************/
+
+int Recibir_SMS(char *ind_msj){
+
+	auto char *CMD_CMGR;
+   CMD_CMGR="AT+CMGR=";                    //comando AT para recibir SMS
+   *(CMD_CMGR+8)=*ind_msj;
+   *(CMD_CMGR+9)=*(ind_msj+1);
+  *(CMD_CMGR+10)=*(ind_msj+2);
+  *(CMD_CMGR+11)=*(ind_msj+3);
+   //strcat(CMD_CMGR, ind_msj);              //concateno ambos strings
+   Enviar_Msj(CMD_CMGR);
+   if(!Respuesta_Modem(ESPERO_OK,txt_msj, TIEMPO))
+      return ERR_TIEMPO;                   //ocurrio un error
+      else return RESP_OK;
+
+}
+/*************************************************************************/
+
+
+
+/*** BeginHeader Procesar_SMS */
+int Procesar_SMS(char *sms);
+/*** EndHeader */
+
+/* START FUNCTION DESCRIPTION ********************************************
+Procesar_SMS                                 <Modem_SIMCOM.LIB>
+
+SYNTAX:			int Procesar_SMS(char *numero, char *sms);
+
+DESCRIPTION: 	Procesa el texto del SMS en busca del numero del remitente y de
+					la(s) palabra(s) clave(s).
+
+PARAMETER1:		Numero al que se le respondera el mensaje SMS.
+PARAMETER2:    Texto del mensaje a procesar.
+
+RETURN VALUE:	PARAM_OK - Mensaje con palabra clave correcta.
+					ERR_PARAM - Mensaje con palabra clave incorrecta.
+
+END DESCRIPTION **********************************************************/
+
+int Procesar_SMS(char *sms){
+
+   char *encontre;
+
+   encontre = strstr(sms,"Posicion");
+   num_cel = strstr(sms,"\"+598");
+   *(num_cel+14) = '\r';
+   *(num_cel+15) = '\0';      //indica el final del numero del remitente
+   if(encontre != '\0')
+   	return PARAM_OK;
+      else return ERR_PARAM;
+
+}
+/*************************************************************************/
+
+
+/*** BeginHeader Respuesta_Modem_SMS */
+int Respuesta_Modem_SMS(char *string_esperado, char *respuesta, int timeout);
+/*** EndHeader */
+
+/* START FUNCTION DESCRIPTION ********************************************
+Respuesta_Modem_SMS                                 <Modem_SIMCOM.LIB>
+
+SYNTAX:			int Respuesta_Modem_SMS(char *string_esperado, char *respuesta, int timeout);
+
+DESCRIPTION: 	Espera a que lleguen dos OK.
+
+PARAMETER1:		String que se espera obtener (termina en el caracter nulo (\0))
+PARAMETER2:		String que devuelve el modem como respuesta.
+PARAMETER3:		Maximo tiempo de espera para un caracter.
+
+RETURN VALUE:	RESP_OK - El string llego con exito
+					ERR_TIEMPO - Se acabo el tiempo de espera
+
+END DESCRIPTION **********************************************************/
+
+int Respuesta_Modem_SMS(char *string_esperado, char *respuesta, int timeout){
+
+	auto int largo_esperado, indice, ind;
+	auto unsigned long t;
+	auto int recibido;
+   auto int canto_OK;
+
+	largo_esperado = strlen(string_esperado);
+	indice=ind=canto_OK=0;
+
+	while(canto_OK < 2){
+
+      t = _SET_TIMEOUT(timeout);
+		while((recibido = serCgetc()) < 0){
+
+			if (_CHK_TIMEOUT(t))
+				return ERR_TIEMPO;		//no llego caracter antes del timeout
+		}
+
+      respuesta[ind] = recibido; //almaceno cada caracter que llega
+      ind++;
+
+      if(recibido == string_esperado[indice])
+		{
+      	indice++;
+         if(indice==2)
+         canto_OK++;
+		}
+		else
+		{
+			indice = 0; //caracter no valido, se vulve a buscar
+		}
+	}
+
+   return RESP_OK;
+}
+/*************************************************************************/
+
+/*** BeginHeader config_modo_txt */
+int config_modo_txt(void);
+/*** EndHeader */
+
+/* START FUNCTION DESCRIPTION ********************************************
+config_modo_txt                                <Modem_SIMCOM.LIB>
+
+SYNTAX:			int config_modo_txt(void);
+
+DESCRIPTION: 	configura el modem para modo texto
+
+
+RETURN VALUE:	RESP_OK - Configuro bien
+					ERR_CONFIG - Configuro mal.
+
+END DESCRIPTION **********************************************************/
+
+int config_modo_txt(){
+
+   Enviar_Msj(CMD_MODO_TEXTO);    //configuracion para modo texto.
+   if(!Respuesta_Modem(ESPERO_OK, respuesta, TIEMPO))
+      return ERR_CONFIG;                 //ocurrio un error
+   return RESP_OK;
+}
+/*************************************************************************/
+
+
