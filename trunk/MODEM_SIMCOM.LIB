@@ -13,16 +13,15 @@
 #define ERR_PARAM 104
 
 static const char CMD_MODO_TEXTO[]="AT+CMGF=1\r";
-static const char CMD_BORRAR[]="AT+CMGD=1\r";
-static const char CMD_LISTA[]="AT+CMGL=\"ALL\"\r";
 static const char BATERIA[]="AT+CBC\r";
-
 static const char ESPERO_OK[]="OK\r\n";
 static const char MSJ_ERR_PARAM[]="Parametro\nincorrecto\n\032"; //Ctrol-Z = \032
 static const char MSJ_COORD[]="Latitud: \nLongitud: \nTiempo: \n\032";
+
 char respuesta[TAMAÑO];
 char txt_msj[TAMAÑO];
 char num_cel[16];
+
 /*** EndHeader */
 
 
@@ -502,7 +501,7 @@ int Recibir_SMS(char *ind_msj){
    Enviar_Msj(CMD_CMGR);
    if(Respuesta_Modem(ESPERO_OK,txt_msj, TIEMPO)==ERR_TIEMPO)
       return ERR_TIEMPO;                   //ocurrio un error
-      else return RESP_OK;
+   else return RESP_OK;
 
 }
 /*************************************************************************/
@@ -545,10 +544,45 @@ int Procesar_SMS(char *sms){
    num_cel[15] = '\0';      //indica el final del numero del remitente
    if(encontre != '\0')
    	return PARAM_OK;
-      else return ERR_PARAM;
+   else return ERR_PARAM;
 
 }
 /*************************************************************************/
+
+
+
+/*** BeginHeader Borrar_SMS */
+int Borrar_SMS(char *ind_msj);
+/*** EndHeader */
+
+/* START FUNCTION DESCRIPTION ********************************************
+Borrar_SMS                                 <Modem_SIMCOM.LIB>
+
+SYNTAX:			int Borrar_SMS(char *ind_msj);
+
+DESCRIPTION: 	Recibe el identificador de un nuevo mensaje SMS y elimina dicho
+					mensaje.
+
+PARAMETER1:    Numero de mensaje recibido("REC UNREAD").
+
+RETURN VALUE:	RESP_OK - Mensaje eliminado.
+					ERR_TIEMPO - Mensaje no eliminado.
+
+END DESCRIPTION **********************************************************/
+
+int Borrar_SMS(char *ind_msj){
+
+	static char CMD_BORRAR[15];
+   strcpy(CMD_BORRAR,"AT+CMGD=");
+   strcat(CMD_BORRAR, ind_msj);              //concateno ambos strings
+   Enviar_Msj(CMD_BORRAR);
+   if(Respuesta_Modem(ESPERO_OK, respuesta, TIEMPO) == ERR_TIEMPO)
+      return ERR_TIEMPO;                   //ocurrio un error
+   else return RESP_OK;
+
+}
+/*************************************************************************/
+
 
 
 /*** BeginHeader config_modo_txt */
@@ -578,3 +612,30 @@ int config_modo_txt(){
 /*************************************************************************/
 
 
+
+/*** BeginHeader Nivel_Bateria */
+int Nivel_Bateria();
+/*** EndHeader */
+
+/* START FUNCTION DESCRIPTION ********************************************
+Nivel_Bateria                                 <Modem_SIMCOM.LIB>
+
+SYNTAX:			int Nivel_Bateria();
+
+DESCRIPTION:   Indica si la bateria se esta cargando, porcentaje de carga y
+					tension de la bateria.
+
+RETURN VALUE:	RESP_OK -
+					ERR_TIEMPO -
+
+END DESCRIPTION **********************************************************/
+
+int Nivel_Bateria(){
+
+   Enviar_Msj(BATERIA);
+   if(Respuesta_Modem(ESPERO_OK, respuesta, TIEMPO) == ERR_TIEMPO)
+      return ERR_TIEMPO;                   //ocurrio un error
+   else return RESP_OK;
+
+}
+/*************************************************************************/

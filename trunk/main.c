@@ -73,7 +73,12 @@ void main()
 	Inicio_Modem(BPS);
 
    if(config_modo_txt() == ERR_CONFIG)
-   	printf("no se configuro el modem en modo texto\n");
+   	printf("\n\nNo se configuro el modem en modo texto\n\n");
+
+   if(Nivel_Bateria() == ERR_TIEMPO)
+   	printf("\n\nNo se obtuvo nivel de la Bateria\n\n");
+    else printf("\n\nNivel de la Bateria: %s\n\n", respuesta);
+
 
 	// clear rx and tx data buffers
 	serCrdFlush();
@@ -167,7 +172,8 @@ void task1(void* pdata)
          		  		printf("Mensaje respuesta de coordenadas enviado\n");
          		  else printf("Mensaje respuesta de coordenadas no enviado\n");
 
-       
+            Borrar_SMS(num_msg);    //borra el mensaje previamente procesado
+
        }
 
 
