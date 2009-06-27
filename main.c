@@ -157,10 +157,7 @@ void task1(void* pdata)
 	        num_msg[3]='\0';
            cns[0]='\0'; // que no se vuelva a procesar el mismo sms.
 
-           if (Recibir_SMS(num_msg) == ERR_TIEMPO)
-           		printf("\nError al recibir sms\n");
-
-           printf("\nTexto del msg:\n%s",txt_msj);
+           Recibir_SMS(num_msg);
 
            if(Procesar_SMS(txt_msj) == ERR_PARAM)
            {
