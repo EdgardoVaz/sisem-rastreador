@@ -22,7 +22,7 @@ static const char MSJ_ERR_PARAM[]="Parametro\nincorrecto\n\032"; //Ctrol-Z = \03
 static const char MSJ_COORD[]="Latitud: \nLongitud: \nTiempo: \n\032";
 char respuesta[TAMAÑO];
 char txt_msj[TAMAÑO];
-char *num_cel;
+char num_cel[16];
 /*** EndHeader */
 
 
@@ -350,7 +350,6 @@ int Respuesta_Modem(char *string_esperado, char *resp, int timeout){
 		}
 
       resp[ind] = recibido; //almaceno cada caracter que llega
-      //txt_msj[ind] = recibido;
       ind++;
 
       if(recibido == string_esperado[indice])
@@ -362,6 +361,7 @@ int Respuesta_Modem(char *string_esperado, char *resp, int timeout){
 			indice = 0; //caracter no valido, se vulve a buscar
 		}
 	}
+   resp[ind] = '\0';   //finalizo el mensaje con caracter nulo
    return RESP_OK;
 }
 /*************************************************************************/
@@ -452,15 +452,12 @@ END DESCRIPTION **********************************************************/
 int Enviar_SMS(char *numero, char *sms){
 
 	static const char PROMPT[]=">";
-   auto char *CMD_CMGS;
-   int dly,j;
+	static char CMD_CMGS[25];
+   int dly;
    dly = 0;
-   CMD_CMGS="AT+CMGS=";                   //comando AT para enviar SMS
 
-   for(j=0;j<16;j++){
-   *(CMD_CMGS+8+j)=*(numero+j);
-   }
-   //strcat(CMD_CMGS, numero);              //concateno ambos strings
+   strcpy(CMD_CMGS,"AT+CMGS=");
+   strcat(CMD_CMGS, numero);              //concateno ambos strings
    Enviar_Msj(CMD_CMGS);                  //comando AT+CMGS="+59898674910"\r
    if(!Respuesta_Modem(PROMPT, respuesta, TIEMPO))
    	return ERR_PROMPT;                  //ocurrio un error
@@ -501,12 +498,7 @@ int Recibir_SMS(char *ind_msj){
 
 	static char CMD_CMGR[15];
    strcpy(CMD_CMGR,"AT+CMGR=");
-   //CMD_CMGR="AT+CMGR=";                    //comando AT para recibir SMS
-   *(CMD_CMGR+8)=*ind_msj;
-   *(CMD_CMGR+9)=*(ind_msj+1);
-  *(CMD_CMGR+10)=*(ind_msj+2);
-  *(CMD_CMGR+11)=*(ind_msj+3);
-   //strcat(CMD_CMGR, ind_msj);              //concateno ambos strings
+   strcat(CMD_CMGR, ind_msj);              //concateno ambos strings
    Enviar_Msj(CMD_CMGR);
    if(Respuesta_Modem(ESPERO_OK,txt_msj, TIEMPO)==ERR_TIEMPO)
       return ERR_TIEMPO;                   //ocurrio un error
@@ -540,11 +532,17 @@ END DESCRIPTION **********************************************************/
 int Procesar_SMS(char *sms){
 
    char *encontre;
-
+   char *ptr_num;
+   int i;
+   i=0;
    encontre = strstr(sms,"Posicion");
-   num_cel = strstr(sms,"\"+598");
-   *(num_cel+14) = '\r';
-   *(num_cel+15) = '\0';      //indica el final del numero del remitente
+   ptr_num = strstr(sms,"\"+598");
+   for (i=0;i<14;i++)
+   {
+   	num_cel[i] = *(ptr_num + i);
+   }
+   num_cel[14] = '\r';
+   num_cel[15] = '\0';      //indica el final del numero del remitente
    if(encontre != '\0')
    	return PARAM_OK;
       else return ERR_PARAM;
@@ -552,64 +550,6 @@ int Procesar_SMS(char *sms){
 }
 /*************************************************************************/
 
-
-/*** BeginHeader Respuesta_Modem_SMS */
-int Respuesta_Modem_SMS(char *string_esperado, char *respuesta, int timeout);
-/*** EndHeader */
-
-/* START FUNCTION DESCRIPTION ********************************************
-Respuesta_Modem_SMS                                 <Modem_SIMCOM.LIB>
-
-SYNTAX:			int Respuesta_Modem_SMS(char *string_esperado, char *respuesta, int timeout);
-
-DESCRIPTION: 	Espera a que lleguen dos OK.
-
-PARAMETER1:		String que se espera obtener (termina en el caracter nulo (\0))
-PARAMETER2:		String que devuelve el modem como respuesta.
-PARAMETER3:		Maximo tiempo de espera para un caracter.
-
-RETURN VALUE:	RESP_OK - El string llego con exito
-					ERR_TIEMPO - Se acabo el tiempo de espera
-
-END DESCRIPTION **********************************************************/
-
-int Respuesta_Modem_SMS(char *string_esperado, char *respuesta, int timeout){
-
-	auto int largo_esperado, indice, ind;
-	auto unsigned long t;
-	auto int recibido;
-   auto int canto_OK;
-
-	largo_esperado = strlen(string_esperado);
-	indice=ind=canto_OK=0;
-
-	while(canto_OK < 2){
-
-      t = _SET_TIMEOUT(timeout);
-		while((recibido = serCgetc()) < 0){
-
-			if (_CHK_TIMEOUT(t))
-				return ERR_TIEMPO;		//no llego caracter antes del timeout
-		}
-
-      respuesta[ind] = recibido; //almaceno cada caracter que llega
-      ind++;
-
-      if(recibido == string_esperado[indice])
-		{
-      	indice++;
-         if(indice==2)
-         canto_OK++;
-		}
-		else
-		{
-			indice = 0; //caracter no valido, se vulve a buscar
-		}
-	}
-
-   return RESP_OK;
-}
-/*************************************************************************/
 
 /*** BeginHeader config_modo_txt */
 int config_modo_txt(void);

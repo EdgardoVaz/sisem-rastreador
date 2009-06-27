@@ -41,15 +41,11 @@ information from Jean J. Labrosse pertaining to version 2.51 of uCOS-II.
 // not defined at all, they will default to 31 and a compiler
 // warning will be displayed.
 
-//#define COUTBUFSIZE 15
-//#define CINBUFSIZE  15
 #define BPS 19200
-
-
-
 #define OS_MAX_TASKS		3
-#define OS_MAX_EVENTS	3
-#define OS_SEM_EN 		3
+#define OS_MAX_EVENTS	1
+#define OS_SEM_EN 	   1
+
 // must explicitly use ucos library
 #use ucos2.lib
 #use Modem_SIMCOM.lib
@@ -61,23 +57,11 @@ void task2(void* pdata);
 
 // Semaphore signaled by task aware isr
 OS_EVENT* serCsem;
-OS_EVENT* sem_proce;
-OS_EVENT* semRecibo;
-
-
-// Counters for number of bytes sent and received
-unsigned int bytessent;
-unsigned int bytesreceived;
 
 
 void main()
 {
-    	static char CMD_CMGRl[15];
-   strcpy(CMD_CMGRl,"AT+CMGR=");
-		//bytesreceived = 0;
-
-
-	// Initialize internal OS data structures
+  	// Initialize internal OS data structures
 	OSInit();
 
 	// Create the three tasks with no initial data and 512 byte stacks
@@ -98,13 +82,7 @@ void main()
 	// create semaphore used by task1
 	serCsem = OSSemCreate(0);
 
-   // create semaphore used by task1
-	sem_proce = OSSemCreate(0);
-
-    // create semaphore used by task1
-	semRecibo = OSSemCreate(1);
-
-	// display start message
+   // display start message
 	printf("*********************************\n");
 	printf("Start\n");
 	printf("*********************************\n");
@@ -115,9 +93,6 @@ void main()
 
 void task0(void* pdata)
 {
-	static int count;
-   auto INT8U err0;
-	count = 0;
 
 	while(1)
 	{
@@ -136,37 +111,37 @@ void task0(void* pdata)
 
 void task1(void* pdata)
 {
-	auto INT8U err1;
-   auto int mango;
-   auto char anda[200];
-   auto int i,u;
+	auto INT8U err;
+   auto int car_ser;
+   auto char cns[200];
+   auto int i;
    auto char *num;
-   auto char *p_cmti;
+
    static char num_msg[4];
 
 
 
-   p_cmti = "+CMTI:";
+
 
 	while(1)
 	{
 		// wait for a byte to arrive at serial port.  This semaphore
 		// will be signaled by the task aware isr for serial port C
 		// at the end of this file.
-		OSSemPend(serCsem, 0, &err1);
+		OSSemPend(serCsem, 0, &err);
 
 		// if byte matches byte transmitted, count it.
        i = 0;
 
        while(serCrdFree() != CINBUFSIZE)
        {
-		  mango = serCgetc();
-        anda[i] = mango;
-        printf("%c", anda[i] );  //c = (char) in;
+		  car_ser = serCgetc();
+        cns[i] = car_ser;
+        printf("%c", cns[i] );
         i++;
        }
 
-       if( (num = strstr(anda, p_cmti)) != '\0'  )
+       if( (num = strstr(cns, "+CMTI:")) != '\0'  )
        {
 	        //printf("%c ",*num);
 	        num += 12;
@@ -175,18 +150,16 @@ void task1(void* pdata)
 	        num_msg[1]=num[1];
 	        num_msg[2]='\r';
 	        num_msg[3]='\0';
-           anda[0]='\0'; // que no se vuelva a procesar el mismo sms.
-        	  printf("numero de mensaje: %s\n",num_msg);
-           /*serCrdFlush();
-           for(u=0;u<TAMAÑO;u++){
-           	txt_msj[u]='\0';
-           }*/
-           Recibir_SMS(num_msg);
+           cns[0]='\0'; // que no se vuelva a procesar el mismo sms.
+
+           if (Recibir_SMS(num_msg) == ERR_TIEMPO)
+           		printf("\nError al recibir sms\n");
+
            printf("\nTexto del msg:\n%s",txt_msj);
 
            if(Procesar_SMS(txt_msj) != ERR_PARAM)
             {
-            	 //printf("\nnumero celular: %s\n",num_cel);
+
              if(Enviar_SMS(num_cel, MSJ_COORD) == RESP_OK)
          	  			printf("Mensaje respuesta de coordenadas enviado");
               		else printf("Mensaje respuesta de coordenadas no enviado");
@@ -201,7 +174,7 @@ void task1(void* pdata)
 
 void task2(void* pdata)
 {
-	auto INT8U err2;
+
 	while(1)
 	{
          // wait for a byte to arrive at serial port.  This semaphore
@@ -211,14 +184,7 @@ void task2(void* pdata)
       OSTimeDly(3 * OS_TICKS_PER_SEC);
 		// format stats and send to stdio
 		//printf("%04d rx: %6u, tx: %6u\n\r", count, bytesreceived, bytessent);
-      printf("\nPASARON LOS 3 SEG DE LA TASK 0\n");
-
-
-
-
-
-
-
+      printf("\nPASARON LOS 3 SEG DE LA TASK 2\n");
 
 	}
 }
