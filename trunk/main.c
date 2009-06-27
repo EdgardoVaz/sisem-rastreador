@@ -157,14 +157,17 @@ void task1(void* pdata)
 
            printf("\nTexto del msg:\n%s",txt_msj);
 
-           if(Procesar_SMS(txt_msj) != ERR_PARAM)
-            {
+           if(Procesar_SMS(txt_msj) == ERR_PARAM)
+           {
+      			if(Enviar_SMS(num_cel, MSJ_ERR_PARAM) == RESP_OK) //enviar mensaje indicando error de parametro
+         			printf("Mensaje respuesta de error enviado\n");
+         		else printf("Mensaje respuesta de error no enviado\n");
+      		}
+            else if(Enviar_SMS(num_cel, MSJ_COORD) == RESP_OK)   //enviar respuesta con coordenadas
+         		  		printf("Mensaje respuesta de coordenadas enviado\n");
+         		  else printf("Mensaje respuesta de coordenadas no enviado\n");
 
-             if(Enviar_SMS(num_cel, MSJ_COORD) == RESP_OK)
-         	  			printf("Mensaje respuesta de coordenadas enviado");
-              		else printf("Mensaje respuesta de coordenadas no enviado");
-            }
-
+       
        }
 
 
