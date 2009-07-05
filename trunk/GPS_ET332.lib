@@ -1,0 +1,566 @@
+/*** BeginHeader */
+#ifndef __GPS_LIB
+#define __GPS_LIB
+/*** EndHeader */
+
+/* START LIBRARY DESCRIPTION *********************************************
+gps.lib
+Rabbit Semiconductor, 2001
+
+functions for parsing NMEA-0183 location data from a GPS receiver.
+Also has functions for computing distances.
+
+gps_get_position
+gps_get_utc
+gps_ground_distance
+
+END DESCRIPTION *********************************************************/
+
+/*** BeginHeader */
+
+//This structure holds geographical position as reported by a GPS receiver
+//use the gps_get_position function below to set the fields
+typedef struct {
+	int lat_degrees;
+	int lon_degrees;
+	float lat_minutes;
+	float lon_minutes;
+	char lat_direction;
+	char lon_direction;
+	} GPSPosition;
+
+// Variable para guardar las posiciones del GPS.
+typedef struct {
+	int lat_degrees;
+	int lon_degrees;
+	int lat_minutes;
+	int lon_minutes;
+   float lat_seg;
+   float lon_seg;
+	char lat_direction;
+	char lon_direction;
+   int hora;             // Variable con la hora para cambiar las 3 horas.
+   int min;
+   int seg;
+   int dia;
+   int mes;
+   int año;
+	} GPS_Datos;
+
+static char msg_gps[68];
+int i_msg_gps;
+
+//in km
+#define DINBUFSIZE  127
+#define DOUTBUFSIZE 127
+#define GPS_EARTH_RADIUS 6371
+#define TAM 100
+#define TAZA 200
+#define TIMEOUT 10000
+
+static GPS_Datos posiciones[TAM];  //  Arreglo de la estructura con todo los datos del GPS.
+static int ind; // indice en donde esta la posición actual.
+
+
+/*** EndHeader */
+
+
+/*** BeginHeader InicializarGPS */
+void InicializarGPS(void);
+/*** EndHeader */
+
+/* START FUNCTION DESCRIPTION ********************************************
+Inicializar		                  <gps.lib>
+
+SYNTAX: 			 void Inicializar(void);
+
+KEYWORDS:      gps
+
+DESCRIPTION:   Inicializa el GPS en el formato ...
+
+PARAMETER1:    ...
+
+
+END DESCRIPTION **********************************************************/
+
+
+void InicializarGPS(){
+
+      static char MSG[27];
+
+//MSG = "$PSRF103,04,01,00,00*000D0A"; Programo: msg=RMC, modo=Query, rate=OFFseg, checksum=0 desable.
+
+     // Programo: msg=RMC, modo=SetRate, rate=3seg, checksum=0 desable.
+     strcpy(MSG,"$PSRF103,04,00,03,00*00\r\n");
+     serDwrite(MSG, strlen(MSG));    // Envio el mensage al GPS por el puerto C.
+
+}
+
+
+/*** BeginHeader GPSgetDatos*/
+GPS_Datos GPSgetDatos(int k);
+/*** EndHeader */
+
+/* START FUNCTION DESCRIPTION ********************************************
+GPSgetDatos		                  <gps.lib>
+
+SYNTAX: 			 GPS_Datos GPSgetDatos(void);
+
+KEYWORDS:      gps
+
+DESCRIPTION:   saca el elemento del arreglo de estructura GPS_Datos actual.
+
+PARAMETER1:    numero de la posición
+
+
+END DESCRIPTION **********************************************************/
+
+GPS_Datos GPSgetDatos(int k){
+auto int i;
+auto GPS_Datos g;
+INT8U err_semaf;
+
+
+    //OSSemPend(Semaf, 0, &err_semaf);
+    g = posiciones[k];
+    //OSSemPost(Semaf);
+
+
+
+return g;
+}
+
+
+/*** BeginHeader gps_parse_coordinate */
+int gps_parse_coordinate(char *coord, int *degrees, float *minutes);
+/*** EndHeader */
+
+//helper function for splitting xxxxx.xxxx into degrees and minutes
+//returns 0 if succeeded
+nodebug int gps_parse_coordinate(char *coord, int *degrees, float *minutes)
+{
+	auto char *decimal_point;
+	auto char temp;
+	auto char *dummy;
+
+	decimal_point = _n_strchr(coord, '.');
+	if(decimal_point == NULL)
+		return -1;
+	temp = *(decimal_point - 2);
+	*(decimal_point - 2) = 0; //temporary terminator
+	*degrees = atoi(coord);
+	*(decimal_point - 2) = temp; //reinstate character
+	*minutes = _n_strtod(decimal_point - 2, &dummy);
+	return 0;
+}
+
+/*** BeginHeader gps_get_position */
+int gps_get_position(GPSPosition *newpos, char *sentence);
+/*** EndHeader */
+
+/* START FUNCTION DESCRIPTION ********************************************
+gps_get_position		                  <gps.lib>
+
+SYNTAX: 			int gps_get_position(GPSPositon *newpos, char *sentence);
+
+KEYWORDS:      gps
+
+DESCRIPTION:   Parses a sentence to extract position data.
+					This function is able to parse any of the following
+					GPS sentence formats: GGA, GLL, RMC
+
+PARAMETER1:    newpos - a GPSPosition structure to fill
+PARAMETER2:		sentence - a string containing a line of GPS data
+					in NMEA-0183 format
+
+RETURN VALUE:  0 - success
+					-1 - parsing error
+					-2 - sentence marked invalid
+
+SEE ALSO:
+
+END DESCRIPTION **********************************************************/
+
+//can parse GGA, GLL, or RMC sentence
+nodebug int gps_get_position(GPSPosition *newpos, char *sentence)
+{
+	auto int i;
+
+	if(strlen(sentence) < 4)
+		return -1;
+	if(strncmp(sentence, "$GPGGA", 6) == 0)
+	{
+		//parse GGA sentence
+		for(i = 0;i < 11;i++)
+		{
+			sentence = _n_strchr(sentence, ',');
+			if(sentence == NULL)
+				return -1;
+			sentence++; //first character in field
+			//pull out data
+			if(i == 1) //latitude
+			{
+				if( gps_parse_coordinate(sentence,
+											    &newpos->lat_degrees,
+											    &newpos->lat_minutes)
+				  )
+				{
+					return -1; //get_coordinate failed
+				}
+			}
+			if(i == 2) //lat direction
+			{
+				newpos->lat_direction = *sentence;
+			}
+			if(i == 3) // longitude
+			{
+				if( gps_parse_coordinate(sentence,
+											  	 &newpos->lon_degrees,
+											  	 &newpos->lon_minutes)
+				  )
+				{
+					return -1; //get_coordinate failed
+				}
+			}
+			if(i == 4) //lon direction
+			{
+				newpos->lon_direction = *sentence;
+			}
+			if(i == 5) //link quality
+			{
+				if(*sentence == '0')
+					return -2;
+			}
+		}
+	}
+	else if(strncmp(sentence, "$GPGLL", 6) == 0)
+	{
+		//parse GLL sentence
+		for(i = 0;i < 6;i++)
+		{
+			sentence = _n_strchr(sentence, ',');
+			if(sentence == NULL)
+			{
+				//handle short GLL sentences from Garmin receivers
+				if(i > 3) break;
+				return -1;
+			}
+			sentence++; //first character in field
+			//pull out data
+			if(i == 0) //latitude
+			{
+				if( gps_parse_coordinate(sentence,
+											    &newpos->lat_degrees,
+											    &newpos->lat_minutes)
+				  )
+				{
+					return -1; //get_coordinate failed
+				}
+			}
+			if(i == 1) //lat direction
+			{
+				newpos->lat_direction = *sentence;
+			}
+			if(i == 2) // longitude
+			{
+				if( gps_parse_coordinate(sentence,
+											  	 &newpos->lon_degrees,
+											  	 &newpos->lon_minutes)
+				  )
+				{
+					return -1; //get_coordinate failed
+				}
+			}
+			if(i == 3) //lon direction
+			{
+				newpos->lon_direction = *sentence;
+			}
+			if(i == 5) //link quality
+			{
+				if(*sentence != 'A')
+					return -2;
+			}
+		}
+	}
+	else if(strncmp(sentence, "$GPRMC", 6) == 0)
+	{
+		//parse RMC sentence
+		for(i = 0;i < 11;i++)
+		{
+			sentence = _n_strchr(sentence, ',');
+			if(sentence == NULL)
+				return -1;
+			sentence++; //first character in field
+			//pull out data
+			if(i == 1) //link quality
+			{
+				if(*sentence != 'A')
+					return -2;
+			}
+			if(i == 2) //latitude
+			{
+				if( gps_parse_coordinate(sentence,
+											    &newpos->lat_degrees,
+											    &newpos->lat_minutes)
+				  )
+				{
+					return -1; //get_coordinate failed
+				}
+			}
+			if(i == 3) //lat direction
+			{
+				newpos->lat_direction = *sentence;
+			}
+			if(i == 4) // longitude
+			{
+				if( gps_parse_coordinate(sentence,
+											  	 &newpos->lon_degrees,
+											  	 &newpos->lon_minutes)
+				  )
+				{
+					return -1; //get_coordinate failed
+				}
+			}
+			if(i == 5) //lon direction
+			{
+				newpos->lon_direction = *sentence;
+			}
+		}
+	}
+	else
+	{
+		return -1; //unknown sentence type
+	}
+	return 0;
+}
+
+/*** BeginHeader gps_get_utc */
+int gps_get_utc(struct tm *newtime, char *sentence);
+/*** EndHeader */
+
+/* START FUNCTION DESCRIPTION ********************************************
+gps_get_utc		                  <gps.lib>
+
+SYNTAX: 			int gps_get_utc(struct tm *newtime, char *sentence);
+
+KEYWORDS:      gps
+
+DESCRIPTION:   Parses an RMC sentence to extract time data
+
+PARAMETER1:		newtime - tm structure to fill with new UTC time
+PARAMETER2:		sentence - a string containing a line of GPS data
+					in NMEA-0183 format(RMC sentence)
+
+RETURN VALUE:  0 - success
+					-1 - parsing error
+					-2 - sentence marked invalid
+
+SEE ALSO:
+
+END DESCRIPTION **********************************************************/
+
+nodebug int gps_get_utc(struct tm *newtime, char *sentence)
+{
+	int i;
+	char temp_str[3];
+	unsigned long epoch_sec;
+	temp_str[2] = 0; //2 character string
+	if(strncmp(sentence, "$GPRMC", 6) == 0)
+	{
+		//parse RMC sentence
+		for(i = 0;i < 11;i++)
+		{
+			sentence = _n_strchr(sentence, ',');
+			if(sentence == NULL)
+				return -1;
+			sentence++; //first character in field
+			//pull out data
+			if(i == 0)
+			{
+				strncpy(temp_str, sentence, 2);
+				newtime->tm_hour = atoi(temp_str);
+				strncpy(temp_str, sentence+2, 2);
+				newtime->tm_min = atoi(temp_str);
+				strncpy(temp_str, sentence+4, 2);
+				newtime->tm_sec = atoi(temp_str);
+			}
+			if(i == 1) //link quality
+			{
+				if(*sentence != 'A')
+					return -2;
+			}
+			if(i == 8) //lon direction
+			{
+				strncpy(temp_str, sentence, 2);
+				newtime->tm_mday = atoi(temp_str);
+				strncpy(temp_str, sentence+2, 2);
+				newtime->tm_mon = atoi(temp_str);
+				strncpy(temp_str, sentence+4, 2);
+				newtime->tm_year = atoi(temp_str);
+			}
+		}
+		//convert back and forth to get weekday
+		//epoch_sec = mktime(newtime);
+		//mktm(newtime, epoch_sec);
+		return 0;
+	}
+	else
+	{
+		return -1; //unknown sentence type
+	}
+}
+
+/*** BeginHeader cambio_de_hora */
+void cambio_de_hora(int dia,int mes,int año,int hora);
+/*** EndHeader */
+
+/* START FUNCTION DESCRIPTION ********************************************
+cambio_de_hora	               <gps.lib>
+
+SYNTAX: void cambio_de_hora(int dia,int mes,int año,int hora,int min,int seg);
+
+KEYWORDS:      gps
+
+DESCRIPTION:   Efectua el cambio de hora, dia, mes, año debido a las 3 horas de
+					diferencia con grendwitch.
+
+
+END DESCRIPTION **********************************************************/
+
+void cambio_de_hora(int dia,int mes,int año,int hora){
+
+
+
+    // Correcciones de la hora y el dia cuando son la 1 o las 2.
+    if(hora == 1){
+
+      if((mes == 1 || mes == 2 || mes == 4 || mes == 6 || mes == 8 || mes == 9 || mes == 11)&&(dia == 1)){
+        hora = 22;
+     	  dia = 31;
+
+        if(mes == 1){
+        mes = 12;
+        año = año - 1;
+        }else{mes = mes - 1;}
+
+      }
+
+      if( (mes == 5 || mes == 7 || mes == 10 || mes == 12) && (dia == 1) ){
+        hora = 22;
+     	  dia = 30;
+        mes = mes - 1;
+      }
+
+      if( (mes == 3) && (dia == 1) ){
+        hora = 22;
+     	  dia = 28;
+        mes = mes - 1;
+      }
+
+      if(dia != 1){
+    		hora = 22;
+    		dia = dia - 1;
+    	}
+
+    }
+
+    if(hora == 2){
+
+      if((mes == 1 || mes == 2 || mes == 4 || mes == 6 || mes == 8 || mes == 9 || mes == 11)&&(dia == 1)){
+        hora = 23;
+     	  dia = 31;
+
+        if(mes == 1){
+        mes = 12;
+        año = año - 1;
+        }else{mes = mes -1; }
+
+      }
+
+      if( (mes == 5 || mes == 7 || mes == 10 || mes == 12) && (dia == 1) ){
+        hora = 23;
+     	  dia = 30;
+        mes = mes - 1;
+      }
+
+      if( (mes == 3) && (dia == 1) ){
+        hora = 23;
+     	  dia = 28;
+        mes = mes - 1;
+      }
+
+      if(dia != 1){
+    		hora = 23;
+    		dia = dia - 1;
+    	}
+
+    }
+
+    if( (hora != 2) && (hora != 1)){
+       	hora = hora - 3;
+                   }
+     posiciones[ind].hora = hora;
+     posiciones[ind].dia = dia;
+     posiciones[ind].mes = mes;
+     posiciones[ind].año = año;
+
+}
+/*** BeginHeader gps_ground_distance */
+float gps_ground_distance(GPSPosition *a, GPSPosition *b);
+/*** EndHeader */
+
+/* START FUNCTION DESCRIPTION ********************************************
+gps_ground_distance		               <gps.lib>
+
+SYNTAX: float gps_ground_distance(GPSPosition *a, GPSPosition *b);
+
+KEYWORDS:      gps
+
+DESCRIPTION:   Calculates ground distance(in km) between to
+               geographical points. (Uses spherical earth model)
+
+PARAMETER1:		a - first point
+PARAMETER2:		b - second point
+
+RETURN VALUE:  distance in kilometers
+
+SEE ALSO:
+
+END DESCRIPTION **********************************************************/
+
+nodebug float gps_ground_distance(GPSPosition *a, GPSPosition *b)
+{
+	float angle;
+	float lat_a, lon_a, lat_b, lon_b;
+
+	lat_a = a->lat_degrees + a->lat_minutes/60;
+	if(a->lat_direction == 'S')
+		lat_a = -lat_a;
+	lat_a = lat_a * PI / 180;
+	lon_a = a->lon_degrees + a->lon_minutes/60;
+ 	if(a->lon_direction == 'W')
+		lon_a = -lon_a;
+	lon_a = lon_a * PI / 180;
+
+	lat_b = b->lat_degrees + b->lat_minutes/60;
+	if(b->lat_direction == 'S')
+		lat_b = -lat_b;
+	lat_b = lat_b * PI / 180;
+	lon_b = b->lon_degrees + b->lon_minutes/60;
+ 	if(b->lon_direction == 'W')
+		lon_b = -lon_b;
+	lon_b = lon_b * PI / 180;
+
+	angle = sqrt(
+		cos(lat_a)*cos(lat_b)*pow(sin((lon_a - lon_b)/2), 2) +
+		pow(sin((lat_a - lat_b)/2), 2)
+		);
+	angle = 2*asin(angle);
+
+	return angle * GPS_EARTH_RADIUS;
+}
+
+
+/*** BeginHeader */
+#endif
+/*** EndHeader */
