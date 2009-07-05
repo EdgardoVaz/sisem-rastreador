@@ -43,21 +43,22 @@ information from Jean J. Labrosse pertaining to version 2.51 of uCOS-II.
 
 #define BPS 19200
 #define OS_MAX_TASKS		3
-#define OS_MAX_EVENTS	1
-#define OS_SEM_EN 	   1
+#define OS_MAX_EVENTS	2
+#define OS_SEM_EN 	   2
 
 // must explicitly use ucos library
 #use ucos2.lib
 #use Modem_SIMCOM.lib
+#use GPS_ET332.lib
 
 // Function prototypes for tasks
-void task0(void* pdata);
-void task1(void* pdata);
+void task_GPS(void* pdata);
+void task_SMS(void* pdata);
 void task2(void* pdata);
 
 // Semaphore signaled by task aware isr
 OS_EVENT* serCsem;
-
+OS_EVENT* Semaf;
 
 void main()
 {
@@ -65,11 +66,13 @@ void main()
 	OSInit();
 
 	// Create the three tasks with no initial data and 512 byte stacks
-	OSTaskCreate(task0, NULL, 512, 2);
-	OSTaskCreate(task1, NULL, 512, 0);
-	OSTaskCreate(task2, NULL, 512, 1);
+	OSTaskCreate(task_GPS, NULL, 512, 1);
+	OSTaskCreate(task_SMS, NULL, 512, 0);
+	OSTaskCreate(task2, NULL, 512, 2);
 
-	// Inicializo el Modem
+
+
+// Inicializo el Modem
 	Inicio_Modem(BPS);
 
    if(config_modo_txt() == ERR_CONFIG)
@@ -84,8 +87,10 @@ void main()
 	serCrdFlush();
 	serCwrFlush();
 
-	// create semaphore used by task1
+	// create semaphore used by taskSMS
 	serCsem = OSSemCreate(0);
+   ///Creo semaforos para el arreglo posiciones.
+   Semaf = OSSemCreate(1);
 
    // display start message
 	printf("*********************************\n");
@@ -96,34 +101,85 @@ void main()
 	OSStart();
 }
 
-void task0(void* pdata)
+void task_GPS(void* pdata)
 {
+	auto INT8U err_semaf;
+   auto char *s1;
+   auto int maxSize;
+   auto char sentence[TAZA];
+   auto int n;
+   auto int lei_pos;             /// Variable que me dice si interprete bien el mensaje del GPS de la posición.
+   auto int lei_time;            /// Variable que me dice si interprete bien el mensaje del GPS del timepo UTC.
+   auto struct tm *newtime;   ///Almacena la hora en la forma (*newtimw).tm_hour, (*newtime).tm_min y (*newtime).tm_sec.
+   auto GPSPosition *newpos;
 
+
+   ind = 0;
+   lei_pos = 1;
+   lei_time = 1;
+   maxSize = sizeof(sentence);
+
+   //InicializarGPS();
+       ///Inicializa el puerto serie C (RS-232) a 19200 baudios.
+   serDopen(4800);
+   serDrdFlush(); /// Limpia buffer de entrada del puerto serie.
+   serDwrFlush(); /// Limpia buffer de salida del puerto serie.
 	while(1)
 	{
 
-      // wait for a second and let stats be collected
 
 
-      OSTimeDly(1 * OS_TICKS_PER_SEC);
-		// format stats and send to stdio
-		//printf("%04d rx: %6u, tx: %6u\n\r", count, bytesreceived, bytessent);
-      printf("\nPASARON LOS 1 SEG DE LA TASK 0\n");
+      if ((n = serDread(sentence, maxSize, TIMEOUT)) > 0)   /// Leo lo que me manda el GPS.
+      {
+      	if((s1 = strstr(sentence, "$GPRMC")) != '\0')
+         {
+         	lei_pos = gps_get_position(newpos, s1);
+        		lei_time = gps_get_utc(newtime, s1);
+            if(!lei_pos && !lei_time)
+            {
+           		if(ind<TAM)
+               {
+                  OSSemPend(Semaf, 0, &err_semaf);
 
+               	posiciones[ind].lat_degrees = newpos->lat_degrees;
+               	posiciones[ind].lon_degrees = newpos->lon_degrees;
+               	posiciones[ind].lat_minutes = (int) newpos->lat_minutes;
+              	   posiciones[ind].lon_minutes = (int) newpos->lon_minutes;
+              	   posiciones[ind].lat_seg = (newpos->lat_minutes -  posiciones[ind].lat_minutes)*60;
+               	posiciones[ind].lon_seg = (newpos->lon_minutes -   posiciones[ind].lon_minutes)*60;
+               	posiciones[ind].lat_direction = newpos->lat_direction;
+               	posiciones[ind].lon_direction = newpos->lon_direction;
+               	posiciones[ind].hora = newtime->tm_hour;
+               	posiciones[ind].min = newtime->tm_min;
+               	posiciones[ind].seg = newtime->tm_sec;
+               	posiciones[ind].dia = newtime->tm_mday;
+               	posiciones[ind].mes = newtime->tm_mon;
+               	posiciones[ind].año = newtime->tm_year;
+                  cambio_de_hora(posiciones[ind].dia, posiciones[ind].mes, posiciones[ind].año, posiciones[ind].hora);
+                  ind++;
 
-	}
-}
+           			OSSemPost(Semaf);
+         		}else{
+               		OSSemPend(Semaf, 0, &err_semaf);
+               		ind=0;
+               		OSSemPost(Semaf);
+            		  }
 
-void task1(void* pdata)
+         	}
+         }
+      }
+   } // fin del loop
+}  /// Fin de la tarea GPS.
+
+void task_SMS(void* pdata)
 {
 	auto INT8U err;
    auto int car_ser;
    auto char cns[200];
    auto int i;
    auto char *num;
-
    static char num_msg[4];
-
+   GPS_Datos g1;  ///  Arreglo de la estructura con todo los datos del GPS.
 
 
 
@@ -161,9 +217,24 @@ void task1(void* pdata)
 
            if(Procesar_SMS(txt_msj) == ERR_PARAM)
            {
-      			if(Enviar_SMS(num_cel, MSJ_ERR_PARAM) == RESP_OK) //enviar mensaje indicando error de parametro
-         			printf("Mensaje respuesta de error enviado\n");
-         		else printf("Mensaje respuesta de error no enviado\n");
+
+
+               if(ind>0)
+               {
+               	g1 = GPSgetDatos(ind); /// Obtengo la posición actual en forma de estructura.
+
+                  printf("\n\n\n\nNUMERO-%d\n\nLATITUD: %d %d'",ind,g1.lat_degrees,g1.lat_minutes);
+           			printf("%f'' %c \n" , g1.lat_seg, g1.lat_direction);
+           	 		printf("LONGITUD: %d %d'",g1.lon_degrees,g1.lon_minutes);
+           	 		printf("%f'' %c \n",g1.lon_seg, g1.lon_direction);
+	          		printf("TIEMPO:    %d/0%d/0%d  ", g1.dia, g1.mes, g1.año);
+             		printf("%d:%d:%d   \n\n", g1.hora, g1.min, g1.seg);
+
+      				if(Enviar_SMS(num_cel, MSJ_ERR_PARAM) == RESP_OK) //enviar mensaje indicando error de parametro
+         				printf("Mensaje respuesta de error enviado\n");
+         			else printf("Mensaje respuesta de error no enviado\n");
+               }
+
       		}
             else if(Enviar_SMS(num_cel, MSJ_COORD) == RESP_OK)   //enviar respuesta con coordenadas
          		  		printf("Mensaje respuesta de coordenadas enviado\n");
@@ -197,7 +268,7 @@ void task2(void* pdata)
 
 // --------- serial port c task aware interrupt ---------------------------- //
 
-#asm debug root
+#asm nodebug root
 ;
 ; spc_isr
 ;
@@ -212,6 +283,7 @@ spx_isr::
 
    ; IX = serXdata
    ld		hl, (ix+_sxd+sxdr)
+
    ld		iy, hl
 
    ioi	ld a, (iy+SxSR_OFS)
@@ -281,7 +353,15 @@ spx_rxcontinue:
 	 ld	 b, a
 	 or	 a
 	 jr    z, nopost
-	 push  ix
+
+   push hl			
+   ld hl, (ix+_sxd+sxdr)
+   ld de, 0000000011100000b     ;0x00E0
+   cp hl, de                    ; interrumpio serie C
+   pop hl
+   jp nz, nopost
+
+    push  ix
 	 push  iy						; OSSemPost trashes iy (other regs already saved)
     exx
     push  hl
