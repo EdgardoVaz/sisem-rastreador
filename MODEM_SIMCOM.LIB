@@ -3,7 +3,7 @@
 #define CINBUFSIZE 255
 #define COUTBUFSIZE 255
 #define TIEMPO 100
-#define TAMAÑO 400
+#define TAMAÑO 200
 #define ERR_TIEMPO 11
 #define ERR_MODO_TXT 21
 #define ERR_PROMPT 31
@@ -198,7 +198,7 @@ void Inicio_Modem(int bps){
          Encendido_Modem();
          esperar(10000);    //espero 10 seg antes de usar el puerto serie
          serCread(respuesta, 12, TIEMPO);
-         while(!Registrado());
+         while(Registrado() != RESP_OK);
 
 }
 /*************************************************************************/
@@ -416,13 +416,17 @@ int Registrado(){
    static const char CMD_CREG[]="AT+CREG?\r";
    static const char ESPERO_OK[]="OK\r\n";
    static const char CREG[]="+CREG: 0,1";
-
+   auto int dly;
+   dly = 0;
 
    Enviar_Msj(CMD_CREG);
-   Respuesta_Modem(ESPERO_OK, respuesta, TIEMPO);
-   if(strstr(respuesta,CREG)== '\0')
-     	return 0;
-      else return 1;
+   while(dly < 50*TIEMPO){
+   	if(Respuesta_Modem(ESPERO_OK, respuesta, TIEMPO) == ERR_TIEMPO)
+         dly += TIEMPO;
+   	else return RESP_OK;
+   }
+   return ERR_TIEMPO;                    //ocurrio un error
+
 }
 /*************************************************************************/
 
@@ -452,21 +456,20 @@ int Enviar_SMS(char *numero, char *sms){
 
 	static const char PROMPT[]=">";
 	static char CMD_CMGS[25];
-   int dly;
+   auto int dly;
    dly = 0;
 
    strcpy(CMD_CMGS,"AT+CMGS=");
    strcat(CMD_CMGS, numero);              //concateno ambos strings
    Enviar_Msj(CMD_CMGS);                  //comando AT+CMGS="+59898674910"\r
-   if(!Respuesta_Modem(PROMPT, respuesta, TIEMPO))
-   	return ERR_PROMPT;                  //ocurrio un error
+   if(Respuesta_Modem(PROMPT, respuesta, TIEMPO) == ERR_TIEMPO)
+   	return ERR_PROMPT;                  //ocurrio un error */
 
    Enviar_Msj(sms);
    while(dly < 50*TIEMPO){
    	if(Respuesta_Modem(ESPERO_OK, respuesta, TIEMPO) == ERR_TIEMPO)
          dly += TIEMPO;
    	else return RESP_OK;
-
    }
    return ERR_TIEMPO;                    //ocurrio un error
 }
@@ -496,12 +499,18 @@ END DESCRIPTION **********************************************************/
 int Recibir_SMS(char *ind_msj){
 
 	static char CMD_CMGR[15];
+   auto int dly;
+   dly = 0;
+
    strcpy(CMD_CMGR,"AT+CMGR=");
    strcat(CMD_CMGR, ind_msj);              //concateno ambos strings
    Enviar_Msj(CMD_CMGR);
-   if(Respuesta_Modem(ESPERO_OK,txt_msj, TIEMPO)==ERR_TIEMPO)
-      return ERR_TIEMPO;                   //ocurrio un error
-   else return RESP_OK;
+   while(dly < 50*TIEMPO){
+   	if(Respuesta_Modem(ESPERO_OK, txt_msj, TIEMPO) == ERR_TIEMPO)
+         dly += TIEMPO;
+   	else return RESP_OK;
+   }
+   return ERR_TIEMPO;                    //ocurrio un error
 
 }
 /*************************************************************************/
@@ -532,7 +541,7 @@ int Procesar_SMS(char *sms){
 
    char *encontre;
    char *ptr_num;
-   int i;
+   auto int i;
    i=0;
    encontre = strstr(sms,"Posicion");
    ptr_num = strstr(sms,"\"+598");
@@ -563,7 +572,7 @@ SYNTAX:			int Borrar_SMS(char *ind_msj);
 DESCRIPTION: 	Recibe el identificador de un nuevo mensaje SMS y elimina dicho
 					mensaje.
 
-PARAMETER1:    Numero de mensaje recibido("REC UNREAD").
+PARAMETER1:    Numero de mensaje recibido.
 
 RETURN VALUE:	RESP_OK - Mensaje eliminado.
 					ERR_TIEMPO - Mensaje no eliminado.
@@ -573,12 +582,18 @@ END DESCRIPTION **********************************************************/
 int Borrar_SMS(char *ind_msj){
 
 	static char CMD_BORRAR[15];
+   auto int dly;
+   dly = 0;
    strcpy(CMD_BORRAR,"AT+CMGD=");
    strcat(CMD_BORRAR, ind_msj);              //concateno ambos strings
+
    Enviar_Msj(CMD_BORRAR);
-   if(Respuesta_Modem(ESPERO_OK, respuesta, TIEMPO) == ERR_TIEMPO)
-      return ERR_TIEMPO;                   //ocurrio un error
-   else return RESP_OK;
+   while(dly < 50*TIEMPO){
+   	if(Respuesta_Modem(ESPERO_OK, respuesta, TIEMPO) == ERR_TIEMPO)
+         dly += TIEMPO;
+   	else return RESP_OK;
+   }
+   return ERR_TIEMPO;                    //ocurrio un error
 
 }
 /*************************************************************************/
@@ -604,10 +619,17 @@ END DESCRIPTION **********************************************************/
 
 int config_modo_txt(){
 
+   auto int dly;
+   dly = 0;
+
    Enviar_Msj(CMD_MODO_TEXTO);    //configuracion para modo texto.
-   if(!Respuesta_Modem(ESPERO_OK, respuesta, TIEMPO))
-      return ERR_CONFIG;                 //ocurrio un error
-   return RESP_OK;
+   while(dly < 50*TIEMPO){
+   	if(Respuesta_Modem(ESPERO_OK, respuesta, TIEMPO) == ERR_TIEMPO)
+         dly += TIEMPO;
+   	else return RESP_OK;
+   }
+   return ERR_CONFIG;                    //ocurrio un error
+
 }
 /*************************************************************************/
 
@@ -632,10 +654,16 @@ END DESCRIPTION **********************************************************/
 
 int Nivel_Bateria(){
 
+	auto int dly;
+   dly = 0;
+
    Enviar_Msj(BATERIA);
-   if(Respuesta_Modem(ESPERO_OK, respuesta, TIEMPO) == ERR_TIEMPO)
-      return ERR_TIEMPO;                   //ocurrio un error
-   else return RESP_OK;
+   while(dly < 50*TIEMPO){
+   	if(Respuesta_Modem(ESPERO_OK, respuesta, TIEMPO) == ERR_TIEMPO)
+         dly += TIEMPO;
+   	else return RESP_OK;
+   }
+   return ERR_TIEMPO;                    //ocurrio un error
 
 }
 /*************************************************************************/
