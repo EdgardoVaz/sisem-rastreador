@@ -42,7 +42,7 @@ information from Jean J. Labrosse pertaining to version 2.51 of uCOS-II.
 // warning will be displayed.
 
 #define BPS 19200
-#define OS_MAX_TASKS		3
+#define OS_MAX_TASKS		2
 #define OS_MAX_EVENTS	2
 #define OS_SEM_EN 	   2
 
@@ -54,7 +54,6 @@ information from Jean J. Labrosse pertaining to version 2.51 of uCOS-II.
 // Function prototypes for tasks
 void task_GPS(void* pdata);
 void task_SMS(void* pdata);
-void task2(void* pdata);
 
 // Semaphore signaled by task aware isr
 OS_EVENT* serCsem;
@@ -68,9 +67,6 @@ void main()
 	// Create the three tasks with no initial data and 512 byte stacks
 	OSTaskCreate(task_GPS, NULL, 512, 1);
 	OSTaskCreate(task_SMS, NULL, 512, 0);
-	OSTaskCreate(task2, NULL, 512, 2);
-
-
 
 // Inicializo el Modem
 	Inicio_Modem(BPS);
@@ -104,7 +100,6 @@ void main()
 void task_GPS(void* pdata)
 {
 	auto INT8U err_semaf;
-   auto char *s1;
    auto int maxSize;
    auto char sentence[TAZA];
    auto int n;
@@ -119,22 +114,15 @@ void task_GPS(void* pdata)
    lei_time = 1;
    maxSize = sizeof(sentence);
 
-   //InicializarGPS();
-       ///Inicializa el puerto serie C (RS-232) a 19200 baudios.
-   serDopen(4800);
-   serDrdFlush(); /// Limpia buffer de entrada del puerto serie.
-   serDwrFlush(); /// Limpia buffer de salida del puerto serie.
-	while(1)
+   InicializarGPS();
+   while(1)
 	{
-
-
-
+      OSTimeDly(3 * OS_TICKS_PER_SEC);
       if ((n = serDread(sentence, maxSize, TIMEOUT)) > 0)   /// Leo lo que me manda el GPS.
       {
-      	if((s1 = strstr(sentence, "$GPRMC")) != '\0')
-         {
-         	lei_pos = gps_get_position(newpos, s1);
-        		lei_time = gps_get_utc(newtime, s1);
+      		n=0;   //para que no se vuelva a procesar los mismos datos del GPS
+         	lei_pos = gps_get_position(newpos, sentence);
+        		lei_time = gps_get_utc(newtime, sentence);
             if(!lei_pos && !lei_time)
             {
            		if(ind<TAM)
@@ -166,7 +154,7 @@ void task_GPS(void* pdata)
             		  }
 
          	}
-         }
+
       }
    } // fin del loop
 }  /// Fin de la tarea GPS.
@@ -176,13 +164,11 @@ void task_SMS(void* pdata)
 	auto INT8U err;
    auto int car_ser;
    auto char cns[200];
+   auto char msj[200];
    auto int i;
    auto char *num;
    static char num_msg[4];
    GPS_Datos g1;  ///  Arreglo de la estructura con todo los datos del GPS.
-
-
-
 
 	while(1)
 	{
@@ -191,7 +177,6 @@ void task_SMS(void* pdata)
 		// at the end of this file.
 		OSSemPend(serCsem, 0, &err);
 
-		// if byte matches byte transmitted, count it.
        i = 0;
 
        while(serCrdFree() != CINBUFSIZE)
@@ -215,56 +200,40 @@ void task_SMS(void* pdata)
 
            Recibir_SMS(num_msg);
 
-           if(Procesar_SMS(txt_msj) == ERR_PARAM)
+           if(Procesar_SMS(txt_msj) == PARAM_OK)
            {
-
-
                if(ind>0)
                {
                	g1 = GPSgetDatos(ind); /// Obtengo la posición actual en forma de estructura.
 
-                  printf("\n\n\n\nNUMERO-%d\n\nLATITUD: %d %d'",ind,g1.lat_degrees,g1.lat_minutes);
+                  /*printf("\n\n\n\nNUMERO-%d\n\nLATITUD: %d %d'",ind,g1.lat_degrees,g1.lat_minutes);
            			printf("%f'' %c \n" , g1.lat_seg, g1.lat_direction);
            	 		printf("LONGITUD: %d %d'",g1.lon_degrees,g1.lon_minutes);
            	 		printf("%f'' %c \n",g1.lon_seg, g1.lon_direction);
 	          		printf("TIEMPO:    %d/0%d/0%d  ", g1.dia, g1.mes, g1.año);
-             		printf("%d:%d:%d   \n\n", g1.hora, g1.min, g1.seg);
+             		printf("%d:%d:%d   \n\n", g1.hora, g1.min, g1.seg);  */
+                  sprintf(msj,"LATITUD:\n%d %d' %f'' %c\nLONGITUD:\n%d %d' %f'' %c\nTIEMPO:\n%d/0%d/0%d\n%d:%d:%d\032",
+                  				g1.lat_degrees, g1.lat_minutes, g1.lat_seg, g1.lat_direction,
+                              g1.lon_degrees, g1.lon_minutes, g1.lon_seg, g1.lon_direction,
+                              g1.dia, g1.mes, g1.año, g1.hora, g1.min, g1.seg);
+                  if(Enviar_SMS(num_cel, msj) == RESP_OK)   //enviar respuesta con coordenadas
+         		  		printf("Mensaje respuesta de coordenadas enviado\n");
+         		   else printf("Mensaje respuesta de coordenadas no enviado\n");
 
-      				if(Enviar_SMS(num_cel, MSJ_ERR_PARAM) == RESP_OK) //enviar mensaje indicando error de parametro
-         				printf("Mensaje respuesta de error enviado\n");
-         			else printf("Mensaje respuesta de error no enviado\n");
                }
 
-      		}
-            else if(Enviar_SMS(num_cel, MSJ_COORD) == RESP_OK)   //enviar respuesta con coordenadas
-         		  		printf("Mensaje respuesta de coordenadas enviado\n");
-         		  else printf("Mensaje respuesta de coordenadas no enviado\n");
+      	  }
+           else if(Enviar_SMS(num_cel, MSJ_ERR_PARAM) == RESP_OK) //enviar mensaje indicando error de parametro
+                     printf("Mensaje respuesta de error enviado\n");
+                  else printf("Mensaje respuesta de error no enviado\n");
 
-            Borrar_SMS(num_msg);    //borra el mensaje previamente procesado
+           Borrar_SMS(num_msg);    //borra el mensaje previamente procesado
 
        }
+	} //Fin del loop
+} //Fin de la tarea SMS
 
 
-
-	}
-}
-
-void task2(void* pdata)
-{
-
-	while(1)
-	{
-         // wait for a byte to arrive at serial port.  This semaphore
-			// will be signaled by the task aware isr for serial port C
-			// at the end of this file.
-
-      OSTimeDly(3 * OS_TICKS_PER_SEC);
-		// format stats and send to stdio
-		//printf("%04d rx: %6u, tx: %6u\n\r", count, bytesreceived, bytessent);
-      printf("\nPASARON LOS 3 SEG DE LA TASK 2\n");
-
-	}
-}
 
 // --------- serial port c task aware interrupt ---------------------------- //
 
@@ -354,7 +323,7 @@ spx_rxcontinue:
 	 or	 a
 	 jr    z, nopost
 
-   push hl			
+   push hl
    ld hl, (ix+_sxd+sxdr)
    ld de, 0000000011100000b     ;0x00E0
    cp hl, de                    ; interrumpio serie C
