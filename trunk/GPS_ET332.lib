@@ -70,29 +70,44 @@ void InicializarGPS(void);
 /*** EndHeader */
 
 /* START FUNCTION DESCRIPTION ********************************************
-Inicializar		                  <gps.lib>
+InicializarGPS		                  <GPS_ET332.lib>
 
-SYNTAX: 			 void Inicializar(void);
+SYNTAX: 			void InicializarGPS(void);
 
-KEYWORDS:      gps
-
-DESCRIPTION:   Inicializa el GPS en el formato ...
-
-PARAMETER1:    ...
-
+DESCRIPTION:   Inicializa el GPS en el formato RMC
 
 END DESCRIPTION **********************************************************/
 
 
 void InicializarGPS(){
 
-      static char MSG[27];
+		auto int i;
+      auto char exor;
+      static char MSG_GGA[26], MSG_GLL[26], MSG_GSA[26];
+      static char MSG_RMC[26], MSG_GSV[26], MSG_VTG[26];
 
-//MSG = "$PSRF103,04,01,00,00*000D0A"; Programo: msg=RMC, modo=Query, rate=OFFseg, checksum=0 desable.
-
-     // Programo: msg=RMC, modo=SetRate, rate=3seg, checksum=0 desable.
-     strcpy(MSG,"$PSRF103,04,00,03,00*00\r\n");
-     serDwrite(MSG, strlen(MSG));    // Envio el mensage al GPS por el puerto C.
+      strcpy(MSG_GGA,"$PSRF103,00,00,00,00*25\r\n");
+      strcpy(MSG_GLL,"$PSRF103,01,00,00,00*24\r\n");
+      strcpy(MSG_GSA,"$PSRF103,02,00,00,00*27\r\n");
+      strcpy(MSG_GSV,"$PSRF103,03,00,00,00*26\r\n");
+      // Programo: msg=RMC, modo=SetRate, rate=3seg, checksum=0 desable.
+      strcpy(MSG_RMC,"$PSRF103,04,00,03,00*22\r\n");
+      strcpy(MSG_VTG,"$PSRF103,05,00,00,00*20\r\n");
+      /*exor=MSG_GGA[1];
+      for(i=2;i<20;i++)
+      {
+        exor = exor ^ MSG_GGA[i];    //Calcula el checksum
+      }
+      printf("Valor del checksum en hexa: %x\n\n", exor); */
+      serDopen(4800);
+      serDrdFlush(); /// Limpia buffer de entrada del puerto serie.
+      serDwrFlush(); /// Limpia buffer de salida del puerto serie.
+      serDwrite(MSG_GGA, strlen(MSG_GGA));
+      serDwrite(MSG_GLL, strlen(MSG_GLL));
+      serDwrite(MSG_GSA, strlen(MSG_GSA));
+      serDwrite(MSG_GSV, strlen(MSG_GSV));
+      serDwrite(MSG_VTG, strlen(MSG_VTG));
+      serDwrite(MSG_RMC, strlen(MSG_RMC));
 
 }
 
