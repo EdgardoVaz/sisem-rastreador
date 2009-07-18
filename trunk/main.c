@@ -1,87 +1,34 @@
-/******************************************************************
-
-      uCOSStream.c
-      Z-World, 2001
-
-		This program uses a task aware isr for the rx side of the
-		serial port C isr.  Bytes are sent from one task to another
-		via serial port C, and status information is sent to the stdio
-		window every second.
-
-		- task0 is responsible for sending the number of bytes transmitted
-		by task2 and received by task1 for the previous second.
-
-		- task1 waits at a semaphore which is signaled by the task aware
-		isr for serial port C.  The semaphore is signaled when a byte
-		arrives at the serial port, and the task receives the byte and
-		increments a counter of bytes received.
-
-		- task2 sends bytes out serial port C and increments a counter of
-		bytes sent.
-
-		- spx_isr is rewritten at the end of this file.  The rx side of the
-		isr is task aware such that if the semaphore task1 is waiting on
-		becomes signaled due to the arrival of a byte, and a higher priority
-		task is not ready to run, then a context switch to task1 will occur.
-		The compiler should generate a warning since spc_isr replaces the
-		isr found in rs232.lib.  This warning can be ignored.
-
-		Make the following connections:
-		----------------------------
- 		1. Connect serial TXC to RXC.
-
-See Newv251.pdf and Relv251.pdf in the samples/ucos-II directory for
-information from Jean J. Labrosse pertaining to version 2.51 of uCOS-II.
-
-******************************************************************/
-#class auto 			// Change default storage class for local variables: on the stack
-
-// The input and output buffers sizes are defined here. If these
-// are not defined to be (2^n)-1, where n = 1...15, or they are
-// not defined at all, they will default to 31 and a compiler
-// warning will be displayed.
-
-#define BPS 19200
 #define OS_MAX_TASKS		2
 #define OS_MAX_EVENTS	2
 #define OS_SEM_EN 	   2
 
-// must explicitly use ucos library
-#use ucos2.lib
 #use Modem_SIMCOM.lib
 #use GPS_ET332.lib
+#use ucos2.lib
 
-// Function prototypes for tasks
-void task_GPS(void* pdata);
-void task_SMS(void* pdata);
+#define BPS 19200
+#define tout 50
+#define TAM 200
 
-// Semaphore signaled by task aware isr
-OS_EVENT* serCsem;
-OS_EVENT* Semaf;
+//Prototipos para las tasks
+	void task_GPS(void* pdata);
+	void task_SMS(void* pdata);
 
-void main()
-{
-  	// Initialize internal OS data structures
+//Semaphore signaled by task aware isr
+	OS_EVENT* serCsem;
+	OS_EVENT* Semaf;
+
+shared char msj[TAM];
+shared int coord_ok;
+
+void main(){
+
+// Initialize internal OS data structures
 	OSInit();
 
-	// Create the three tasks with no initial data and 512 byte stacks
+// Create the three tasks with no initial data and 512 byte stacks
 	OSTaskCreate(task_GPS, NULL, 512, 1);
 	OSTaskCreate(task_SMS, NULL, 512, 0);
-
-// Inicializo el Modem
-	Inicio_Modem(BPS);
-
-   if(config_modo_txt() == ERR_CONFIG)
-   	printf("\n\nNo se configuro el modem en modo texto\n\n");
-
-   if(Nivel_Bateria() == ERR_TIEMPO)
-   	printf("\n\nNo se obtuvo nivel de la Bateria\n\n");
-    else printf("\n\nNivel de la Bateria: %s\n\n", respuesta);
-
-
-	// clear rx and tx data buffers
-	serCrdFlush();
-	serCwrFlush();
 
 	// create semaphore used by taskSMS
 	serCsem = OSSemCreate(0);
@@ -97,141 +44,76 @@ void main()
 	OSStart();
 }
 
-void task_GPS(void* pdata)
-{
-	auto INT8U err_semaf;
-   auto int maxSize;
-   auto char sentence[TAZA];
-   auto int n;
-   auto int lei_pos;             /// Variable que me dice si interprete bien el mensaje del GPS de la posición.
-   auto int lei_time;            /// Variable que me dice si interprete bien el mensaje del GPS del timepo UTC.
-   auto struct tm *newtime;   ///Almacena la hora en la forma (*newtimw).tm_hour, (*newtime).tm_min y (*newtime).tm_sec.
-   auto GPSPosition *newpos;
 
-
-   ind = 0;
-   lei_pos = 1;
-   lei_time = 1;
-   maxSize = sizeof(sentence);
-
-   InicializarGPS();
-   while(1)
-	{
-      OSTimeDly(3 * OS_TICKS_PER_SEC);
-      if ((n = serDread(sentence, maxSize, TIMEOUT)) > 0)   /// Leo lo que me manda el GPS.
-      {
-      		n=0;   //para que no se vuelva a procesar los mismos datos del GPS
-         	lei_pos = gps_get_position(newpos, sentence);
-        		lei_time = gps_get_utc(newtime, sentence);
-            if(!lei_pos && !lei_time)
-            {
-           		if(ind<TAM)
-               {
-                  OSSemPend(Semaf, 0, &err_semaf);
-
-               	posiciones[ind].lat_degrees = newpos->lat_degrees;
-               	posiciones[ind].lon_degrees = newpos->lon_degrees;
-               	posiciones[ind].lat_minutes = (int) newpos->lat_minutes;
-              	   posiciones[ind].lon_minutes = (int) newpos->lon_minutes;
-              	   posiciones[ind].lat_seg = (newpos->lat_minutes -  posiciones[ind].lat_minutes)*60;
-               	posiciones[ind].lon_seg = (newpos->lon_minutes -   posiciones[ind].lon_minutes)*60;
-               	posiciones[ind].lat_direction = newpos->lat_direction;
-               	posiciones[ind].lon_direction = newpos->lon_direction;
-               	posiciones[ind].hora = newtime->tm_hour;
-               	posiciones[ind].min = newtime->tm_min;
-               	posiciones[ind].seg = newtime->tm_sec;
-               	posiciones[ind].dia = newtime->tm_mday;
-               	posiciones[ind].mes = newtime->tm_mon;
-               	posiciones[ind].año = newtime->tm_year;
-                  cambio_de_hora(posiciones[ind].dia, posiciones[ind].mes, posiciones[ind].año, posiciones[ind].hora);
-                  ind++;
-
-           			OSSemPost(Semaf);
-         		}else{
-               		OSSemPend(Semaf, 0, &err_semaf);
-               		ind=0;
-               		OSSemPost(Semaf);
-            		  }
-
-         	}
-
-      }
-   } // fin del loop
-}  /// Fin de la tarea GPS.
 
 void task_SMS(void* pdata)
 {
 	auto INT8U err;
-   auto int car_ser;
-   auto char cns[200];
-   auto char msj[200];
-   auto int i;
-   auto char *num;
-   static char num_msg[4];
-   GPS_Datos g1;  ///  Arreglo de la estructura con todo los datos del GPS.
-
-	while(1)
+   static char cns[100];
+	auto char *num;
+	auto char num_msg[4];
+// Inicializo el Modem
+   Inicio_Modem(BPS);
+// clear rx and tx data buffers
+	serCrdFlush();
+	serCwrFlush();
+	for(;;)
 	{
-		// wait for a byte to arrive at serial port.  This semaphore
-		// will be signaled by the task aware isr for serial port C
-		// at the end of this file.
-		OSSemPend(serCsem, 0, &err);
+		 // wait for a byte to arrive at serial port.  This semaphore
+		 // will be signaled by the task aware isr for serial port C
+		 // at the end of this file.
+		 OSSemPend(serCsem, 0, &err);
 
-       i = 0;
 
-       while(serCrdFree() != CINBUFSIZE)
+       n_gsm = serCread(cns, sizeof(cns), tout);
+       cns[n_gsm]='\0';
+       printf("%s", cns);
+       n_gsm = 0;
+       if((num = strstr(cns, "+CMTI:")) != '\0')
        {
-		  car_ser = serCgetc();
-        cns[i] = car_ser;
-        printf("%c", cns[i] );
-        i++;
-       }
-
-       if( (num = strstr(cns, "+CMTI:")) != '\0'  )
-       {
-	        //printf("%c ",*num);
-	        num += 12;
-	        //printf(" %c\n",*num);
-	        num_msg[0]=num[0];
-	        num_msg[1]=num[1];
-	        num_msg[2]='\r';
-	        num_msg[3]='\0';
-           cns[0]='\0'; // que no se vuelva a procesar el mismo sms.
-
-           Recibir_SMS(num_msg);
-
-           if(Procesar_SMS(txt_msj) == PARAM_OK)
-           {
-               if(ind>0)
-               {
-               	g1 = GPSgetDatos(ind); /// Obtengo la posición actual en forma de estructura.
-
-                  /*printf("\n\n\n\nNUMERO-%d\n\nLATITUD: %d %d'",ind,g1.lat_degrees,g1.lat_minutes);
-           			printf("%f'' %c \n" , g1.lat_seg, g1.lat_direction);
-           	 		printf("LONGITUD: %d %d'",g1.lon_degrees,g1.lon_minutes);
-           	 		printf("%f'' %c \n",g1.lon_seg, g1.lon_direction);
-	          		printf("TIEMPO:    %d/0%d/0%d  ", g1.dia, g1.mes, g1.año);
-             		printf("%d:%d:%d   \n\n", g1.hora, g1.min, g1.seg);  */
-                  sprintf(msj,"LATITUD:\n%d %d' %f'' %c\nLONGITUD:\n%d %d' %f'' %c\nTIEMPO:\n%d/0%d/0%d\n%d:%d:%d\032",
-                  				g1.lat_degrees, g1.lat_minutes, g1.lat_seg, g1.lat_direction,
-                              g1.lon_degrees, g1.lon_minutes, g1.lon_seg, g1.lon_direction,
-                              g1.dia, g1.mes, g1.año, g1.hora, g1.min, g1.seg);
-                  if(Enviar_SMS(num_cel, msj) == RESP_OK)   //enviar respuesta con coordenadas
-         		  		printf("Mensaje respuesta de coordenadas enviado\n");
-         		   else printf("Mensaje respuesta de coordenadas no enviado\n");
-
-               }
-
-      	  }
-           else if(Enviar_SMS(num_cel, MSJ_ERR_PARAM) == RESP_OK) //enviar mensaje indicando error de parametro
-                     printf("Mensaje respuesta de error enviado\n");
+       		num += 12;
+            num_msg[0]=num[0];     //Selecciona el nº de sms recibido
+	        	num_msg[1]=num[1];
+	        	num_msg[2]='\r';
+	        	num_msg[3]='\0';
+           	Recibir_SMS(num_msg);
+            if(Procesar_SMS(txt_msj) == PARAM_OK)
+           	{
+            		if(coord_ok)
+               	{
+                        if(Enviar_SMS(num_cel, msj) == RESP_OK)   //enviar respuesta con coordenadas
+         		  				printf("Mensaje respuesta de coordenadas enviado\n");
+         		   		else printf("Mensaje respuesta de coordenadas no enviado\n");
+                   }else printf("No hay coordenadas disponibles\n\n");
+            }else if(Enviar_SMS(num_cel, MSJ_ERR_PARAM) == RESP_OK) //enviar mensaje indicando error de parametro
+                     		printf("Mensaje respuesta de error enviado\n");
                   else printf("Mensaje respuesta de error no enviado\n");
-
-           Borrar_SMS(num_msg);    //borra el mensaje previamente procesado
-
+            Borrar_SMS(num_msg); //Borra el mensaje previamente procesado
        }
-	} //Fin del loop
-} //Fin de la tarea SMS
+   }//Fin del loop
+}//Fin task_SMS
+
+
+
+void task_GPS(void* pdata)
+{
+	static char data[TAM];
+// Inicializo el GPS
+   InicializarGPS();
+// clear rx and tx data buffers
+	serDrdFlush();
+	serDwrFlush();
+   for(;;)
+	{
+   	 OSTimeDly(3 * OS_TICKS_PER_SEC);
+   	 n_gps = serDread(data, sizeof(data), tout);
+   	 data[n_gps]='\0';
+   	 coord_ok = ProcesarGPS(data, n_gps);
+   	 sprintf(msj, "Latitud: %s\nLongitud: %s\nHora: %s\nFecha: %s\n\032", latitud, longitud, hora_utc, fecha);
+   	 printf("%s", msj);
+       n_gps = 0;
+   }//Fin del loop
+}//Fin task_GPS
 
 
 
@@ -448,4 +330,5 @@ spc_finish:
    pop	af            ; 7
    ret                 ; 13
 #endasm
+
 
