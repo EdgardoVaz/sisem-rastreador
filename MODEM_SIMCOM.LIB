@@ -16,7 +16,7 @@ static const char CMD_MODO_TEXTO[]="AT+CMGF=1\r";
 static const char BATERIA[]="AT+CBC\r";
 static const char ESPERO_OK[]="OK\r\n";
 static const char MSJ_ERR_PARAM[]="Parametro\nincorrecto\n\032"; //Ctrol-Z = \032
-static const char MSJ_COORD[]="Latitud: \nLongitud: \nTiempo: \n\032";
+static int n_gsm;
 
 char respuesta[TAMAÑO];
 char txt_msj[TAMAÑO];
@@ -199,6 +199,11 @@ void Inicio_Modem(int bps){
          esperar(10000);    //espero 10 seg antes de usar el puerto serie
          serCread(respuesta, 12, TIEMPO);
          while(Registrado() != RESP_OK);
+         //Configura el modem en modo texto
+   		if(config_modo_txt() == ERR_CONFIG)
+   			printf("\n\nNo se configuro el modem en modo texto\n\n");
+   		Nivel_Bateria();
+   		printf("Nivel de Bateria: %s\n\n", respuesta);
 
 }
 /*************************************************************************/
@@ -231,69 +236,15 @@ int ModoSleep(int dtr){
 
 
 
-/*** BeginHeader Conectado */
-int Conectado();
+
+/*** BeginHeader Enviar_CMD */
+void Enviar_CMD(char *mensaje);
 /*** EndHeader */
 
 /* START FUNCTION DESCRIPTION ********************************************
-Conectado                                 <Modem_SIMCOM.LIB>
+Enviar_CMD                                 <Modem_SIMCOM.LIB>
 
-SYNTAX:			int Conectado();
-
-DESCRIPTION: 	Verifica si el modem esta conectado a la red celular (portadora)
-
-RETURN VALUE:	1 - Linea DCD activa
-					0 - Linea DCD inactiva (nada conectado)
-
-END DESCRIPTION **********************************************************/
-
-int Conectado(){
-
-   int estado;
-	//PC4 es la linea DCD - activa por bajo
-   WrPortI(PCDDR, &PCDDRShadow, (0x10 | PCDDRShadow));//PC4=salida
-   //estado = !BitRdPortI(PCDR, 4);
-
-   WrPortI(PCDDR, &PCDDRShadow, (0xEF & PCDDRShadow));//PC4=entrada
-
-   return 1;
-}
-/*************************************************************************/
-
-
-
-/*** BeginHeader Ring */
-int Ring();
-/*** EndHeader */
-
-/* START FUNCTION DESCRIPTION ********************************************
-Ring                                 <Modem_SIMCOM.LIB>
-
-SYNTAX:			int Ring();
-
-DESCRIPTION: 	Indica que hay una llamada entrante o que ha llegado un SMS.
-
-RETURN VALUE:	1 - RI line is active
-					0 - RI inactive (nothing connected)
-END DESCRIPTION **********************************************************/
-
-int Ring(){
-
-	//PE4 es linea RI - activa por bajo
-   return !BitRdPortI(PEDR, 4);
-}
-/*************************************************************************/
-
-
-
-/*** BeginHeader Enviar_Msj */
-void Enviar_Msj(char *mensaje);
-/*** EndHeader */
-
-/* START FUNCTION DESCRIPTION ********************************************
-Enviar_Msj                                 <Modem_SIMCOM.LIB>
-
-SYNTAX:			void Enviar_Msj(char *mensaje);
+SYNTAX:			void Enviar_CMD(char *mensaje);
 
 DESCRIPTION: 	Envia mensaje al modem a traves del puerto serial C.
 					El fin del mensaje es indicado con el cartacter nulo (\0).
@@ -302,7 +253,7 @@ PARAMETER1:		String que termina en un caracter nulo (\0)
 
 END DESCRIPTION **********************************************************/
 
-void Enviar_Msj(char *mensaje){
+void Enviar_CMD(char *mensaje){
 
 	serCputs(mensaje);
 }
@@ -339,7 +290,7 @@ int Respuesta_Modem(char *string_esperado, char *resp, int timeout){
 	largo_esperado = strlen(string_esperado);
 	indice=ind=0;
 
-	while(indice < largo_esperado){
+   while(indice < largo_esperado){
 
       t = _SET_TIMEOUT(timeout);
 		while((recibido = serCgetc()) < 0){
@@ -416,16 +367,10 @@ int Registrado(){
    static const char CMD_CREG[]="AT+CREG?\r";
    static const char ESPERO_OK[]="OK\r\n";
    static const char CREG[]="+CREG: 0,1";
-   auto int dly;
-   dly = 0;
-
-   Enviar_Msj(CMD_CREG);
-   while(dly < 50*TIEMPO){
-   	if(Respuesta_Modem(ESPERO_OK, respuesta, TIEMPO) == ERR_TIEMPO)
-         dly += TIEMPO;
-   	else return RESP_OK;
-   }
-   return ERR_TIEMPO;                    //ocurrio un error
+   Enviar_CMD(CMD_CREG);
+   if(Respuesta_Modem(ESPERO_OK, respuesta, TIEMPO) == ERR_TIEMPO)
+   	return ERR_TIEMPO;                    //ocurrio un error
+   else return RESP_OK;
 
 }
 /*************************************************************************/
@@ -456,22 +401,18 @@ int Enviar_SMS(char *numero, char *sms){
 
 	static const char PROMPT[]=">";
 	static char CMD_CMGS[25];
-   auto int dly;
-   dly = 0;
-
    strcpy(CMD_CMGS,"AT+CMGS=");
    strcat(CMD_CMGS, numero);              //concateno ambos strings
-   Enviar_Msj(CMD_CMGS);                  //comando AT+CMGS="+59898674910"\r
+   Enviar_CMD(CMD_CMGS);                  //comando AT+CMGS="+59898674910"\r
    if(Respuesta_Modem(PROMPT, respuesta, TIEMPO) == ERR_TIEMPO)
    	return ERR_PROMPT;                  //ocurrio un error */
 
-   Enviar_Msj(sms);
-   while(dly < 50*TIEMPO){
-   	if(Respuesta_Modem(ESPERO_OK, respuesta, TIEMPO) == ERR_TIEMPO)
-         dly += TIEMPO;
-   	else return RESP_OK;
-   }
-   return ERR_TIEMPO;                    //ocurrio un error
+   Enviar_CMD(sms);
+   if(Respuesta_Modem(ESPERO_OK, respuesta, TIEMPO) == ERR_TIEMPO)
+   	return ERR_TIEMPO;                  //ocurrio un error
+   else return RESP_OK;
+
+
 }
 /*************************************************************************/
 
@@ -499,18 +440,12 @@ END DESCRIPTION **********************************************************/
 int Recibir_SMS(char *ind_msj){
 
 	static char CMD_CMGR[15];
-   auto int dly;
-   dly = 0;
-
    strcpy(CMD_CMGR,"AT+CMGR=");
    strcat(CMD_CMGR, ind_msj);              //concateno ambos strings
-   Enviar_Msj(CMD_CMGR);
-   while(dly < 50*TIEMPO){
-   	if(Respuesta_Modem(ESPERO_OK, txt_msj, TIEMPO) == ERR_TIEMPO)
-         dly += TIEMPO;
-   	else return RESP_OK;
-   }
-   return ERR_TIEMPO;                    //ocurrio un error
+   Enviar_CMD(CMD_CMGR);
+   if(Respuesta_Modem(ESPERO_OK, txt_msj, TIEMPO) == ERR_TIEMPO)
+   	return ERR_TIEMPO;                   //ocurrio un error
+   else return RESP_OK;
 
 }
 /*************************************************************************/
@@ -582,18 +517,12 @@ END DESCRIPTION **********************************************************/
 int Borrar_SMS(char *ind_msj){
 
 	static char CMD_BORRAR[15];
-   auto int dly;
-   dly = 0;
    strcpy(CMD_BORRAR,"AT+CMGD=");
    strcat(CMD_BORRAR, ind_msj);              //concateno ambos strings
-
-   Enviar_Msj(CMD_BORRAR);
-   while(dly < 50*TIEMPO){
-   	if(Respuesta_Modem(ESPERO_OK, respuesta, TIEMPO) == ERR_TIEMPO)
-         dly += TIEMPO;
-   	else return RESP_OK;
-   }
-   return ERR_TIEMPO;                    //ocurrio un error
+   Enviar_CMD(CMD_BORRAR);
+   if(Respuesta_Modem(ESPERO_OK, respuesta, TIEMPO) == ERR_TIEMPO)
+     	return ERR_TIEMPO;                  //ocurrio un error
+   else return RESP_OK;
 
 }
 /*************************************************************************/
@@ -619,16 +548,10 @@ END DESCRIPTION **********************************************************/
 
 int config_modo_txt(){
 
-   auto int dly;
-   dly = 0;
-
-   Enviar_Msj(CMD_MODO_TEXTO);    //configuracion para modo texto.
-   while(dly < 50*TIEMPO){
-   	if(Respuesta_Modem(ESPERO_OK, respuesta, TIEMPO) == ERR_TIEMPO)
-         dly += TIEMPO;
-   	else return RESP_OK;
-   }
-   return ERR_CONFIG;                    //ocurrio un error
+   Enviar_CMD(CMD_MODO_TEXTO);    //configuracion para modo texto.
+   if(Respuesta_Modem(ESPERO_OK, respuesta, TIEMPO) == ERR_TIEMPO)
+     	return ERR_CONFIG;                    //ocurrio un error
+   else return RESP_OK;
 
 }
 /*************************************************************************/
@@ -654,16 +577,10 @@ END DESCRIPTION **********************************************************/
 
 int Nivel_Bateria(){
 
-	auto int dly;
-   dly = 0;
-
-   Enviar_Msj(BATERIA);
-   while(dly < 50*TIEMPO){
-   	if(Respuesta_Modem(ESPERO_OK, respuesta, TIEMPO) == ERR_TIEMPO)
-         dly += TIEMPO;
-   	else return RESP_OK;
-   }
-   return ERR_TIEMPO;                    //ocurrio un error
+   Enviar_CMD(BATERIA);
+   if(Respuesta_Modem(ESPERO_OK, respuesta, TIEMPO) == ERR_TIEMPO)
+     	return ERR_TIEMPO;                    //ocurrio un error
+   else return RESP_OK;
 
 }
 /*************************************************************************/
