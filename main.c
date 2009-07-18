@@ -7,7 +7,7 @@
 #use ucos2.lib
 
 #define BPS 19200
-#define tout 50
+#define tout 100
 #define TAM 200
 
 //Prototipos para las tasks
@@ -37,7 +37,7 @@ void main(){
 
    // display start message
 	printf("*********************************\n");
-	printf("Start\n");
+	printf("Start MuCOS-II\n");
 	printf("*********************************\n");
 
 	// begin multi-tasking (execution will be transferred to task0)
@@ -50,8 +50,9 @@ void task_SMS(void* pdata)
 {
 	auto INT8U err;
    static char cns[100];
-	auto char *num;
-	auto char num_msg[4];
+	auto char *num, *n;
+	static char num_msg[4];
+   static int k;
 // Inicializo el Modem
    Inicio_Modem(BPS);
 // clear rx and tx data buffers
@@ -63,7 +64,6 @@ void task_SMS(void* pdata)
 		 // will be signaled by the task aware isr for serial port C
 		 // at the end of this file.
 		 OSSemPend(serCsem, 0, &err);
-
 
        n_gsm = serCread(cns, sizeof(cns), tout);
        cns[n_gsm]='\0';
@@ -81,13 +81,23 @@ void task_SMS(void* pdata)
            	{
             		if(coord_ok)
                	{
-                        if(Enviar_SMS(num_cel, msj) == RESP_OK)   //enviar respuesta con coordenadas
-         		  				printf("Mensaje respuesta de coordenadas enviado\n");
-         		   		else printf("Mensaje respuesta de coordenadas no enviado\n");
-                   }else printf("No hay coordenadas disponibles\n\n");
-            }else if(Enviar_SMS(num_cel, MSJ_ERR_PARAM) == RESP_OK) //enviar mensaje indicando error de parametro
-                     		printf("Mensaje respuesta de error enviado\n");
-                  else printf("Mensaje respuesta de error no enviado\n");
+                        k = Enviar_SMS(num_cel, msj);   //enviar respuesta con coordenadas
+                        printf("valor de k: %d\n\n", k);
+                        OSTimeDlySec(10);
+                        if(Respuesta_Modem(ESPERO_OK, respuesta, TIEMPO) == RESP_OK)
+                        	printf("Mensaje respuesta de coordenadas enviado\n");
+           		   		else printf("Mensaje respuesta de coordenadas no enviado\n");
+                   }
+                   else printf("No hay coordenadas disponibles\n\n");
+            }
+            else
+            {
+            		 Enviar_SMS(num_cel, MSJ_ERR_PARAM); //enviar mensaje indicando error de parametro
+               	 OSTimeDlySec(10);
+                   if(Respuesta_Modem(ESPERO_OK, respuesta, TIEMPO) == RESP_OK)
+               	    printf("Mensaje respuesta de error enviado\n");
+               	 else printf("Mensaje respuesta de error no enviado\n");
+            }
             Borrar_SMS(num_msg); //Borra el mensaje previamente procesado
        }
    }//Fin del loop
@@ -110,8 +120,7 @@ void task_GPS(void* pdata)
    	 data[n_gps]='\0';
    	 coord_ok = ProcesarGPS(data, n_gps);
    	 sprintf(msj, "Latitud: %s\nLongitud: %s\nHora: %s\nFecha: %s\n\032", latitud, longitud, hora_utc, fecha);
-   	 printf("%s", msj);
-       n_gps = 0;
+   	 n_gps = 0;
    }//Fin del loop
 }//Fin task_GPS
 

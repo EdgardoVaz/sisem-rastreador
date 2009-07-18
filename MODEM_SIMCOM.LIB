@@ -16,6 +16,7 @@ static const char CMD_MODO_TEXTO[]="AT+CMGF=1\r";
 static const char BATERIA[]="AT+CBC\r";
 static const char ESPERO_OK[]="OK\r\n";
 static const char MSJ_ERR_PARAM[]="Parametro\nincorrecto\n\032"; //Ctrol-Z = \032
+static const char MSJ_COORD[]="Latitud: \nLongitud: \nTiempo: \n\032";
 static int n_gsm;
 
 char respuesta[TAMAÑO];
@@ -202,7 +203,7 @@ void Inicio_Modem(int bps){
          //Configura el modem en modo texto
    		if(config_modo_txt() == ERR_CONFIG)
    			printf("\n\nNo se configuro el modem en modo texto\n\n");
-   		Nivel_Bateria();
+         Nivel_Bateria();
    		printf("Nivel de Bateria: %s\n\n", respuesta);
 
 }
@@ -256,6 +257,7 @@ END DESCRIPTION **********************************************************/
 void Enviar_CMD(char *mensaje){
 
 	serCputs(mensaje);
+   esperar(TIEMPO);
 }
 /*************************************************************************/
 
@@ -290,7 +292,7 @@ int Respuesta_Modem(char *string_esperado, char *resp, int timeout){
 	largo_esperado = strlen(string_esperado);
 	indice=ind=0;
 
-   while(indice < largo_esperado){
+	while(indice < largo_esperado){
 
       t = _SET_TIMEOUT(timeout);
 		while((recibido = serCgetc()) < 0){
@@ -368,7 +370,7 @@ int Registrado(){
    static const char ESPERO_OK[]="OK\r\n";
    static const char CREG[]="+CREG: 0,1";
    Enviar_CMD(CMD_CREG);
-   if(Respuesta_Modem(ESPERO_OK, respuesta, TIEMPO) == ERR_TIEMPO)
+   if(Respuesta_Modem(CREG, respuesta, TIEMPO) == ERR_TIEMPO)
    	return ERR_TIEMPO;                    //ocurrio un error
    else return RESP_OK;
 
@@ -401,18 +403,15 @@ int Enviar_SMS(char *numero, char *sms){
 
 	static const char PROMPT[]=">";
 	static char CMD_CMGS[25];
+
    strcpy(CMD_CMGS,"AT+CMGS=");
    strcat(CMD_CMGS, numero);              //concateno ambos strings
    Enviar_CMD(CMD_CMGS);                  //comando AT+CMGS="+59898674910"\r
    if(Respuesta_Modem(PROMPT, respuesta, TIEMPO) == ERR_TIEMPO)
    	return ERR_PROMPT;                  //ocurrio un error */
 
-   Enviar_CMD(sms);
-   if(Respuesta_Modem(ESPERO_OK, respuesta, TIEMPO) == ERR_TIEMPO)
-   	return ERR_TIEMPO;                  //ocurrio un error
-   else return RESP_OK;
-
-
+   Enviar_CMD(sms);           				//texto de respuesta
+   return 1;
 }
 /*************************************************************************/
 
