@@ -2,7 +2,7 @@
 
 #define CINBUFSIZE 255
 #define COUTBUFSIZE 255
-#define TIEMPO 100
+#define TIEMPO 10
 #define TAMAÑO 200
 #define ERR_TIEMPO 11
 #define ERR_MODO_TXT 21
@@ -201,10 +201,8 @@ void Inicio_Modem(int bps){
          serCread(respuesta, 12, TIEMPO);
          while(Registrado() != RESP_OK);
          //Configura el modem en modo texto
-   		if(config_modo_txt() == ERR_CONFIG)
-   			printf("\n\nNo se configuro el modem en modo texto\n\n");
-         Nivel_Bateria();
-   		printf("Nivel de Bateria: %s\n\n", respuesta);
+   		Config_modo_txt();
+
 
 }
 /*************************************************************************/
@@ -257,7 +255,7 @@ END DESCRIPTION **********************************************************/
 void Enviar_CMD(char *mensaje){
 
 	serCputs(mensaje);
-   esperar(TIEMPO);
+   esperar(10*TIEMPO);   //luego de enviar un comando espero 100ms.
 }
 /*************************************************************************/
 
@@ -528,24 +526,23 @@ int Borrar_SMS(char *ind_msj){
 
 
 
-/*** BeginHeader config_modo_txt */
-int config_modo_txt(void);
+/*** BeginHeader Config_modo_txt */
+int Config_modo_txt(void);
 /*** EndHeader */
 
 /* START FUNCTION DESCRIPTION ********************************************
-config_modo_txt                                <Modem_SIMCOM.LIB>
+Config_modo_txt                                <Modem_SIMCOM.LIB>
 
-SYNTAX:			int config_modo_txt(void);
+SYNTAX:			int Config_modo_txt(void);
 
-DESCRIPTION: 	configura el modem para modo texto
+DESCRIPTION: 	Configura el modem en modo texto.
 
-
-RETURN VALUE:	RESP_OK - Configuro bien
-					ERR_CONFIG - Configuro mal.
+RETURN VALUE:	RESP_OK - Configuracion exitosa.
+					ERR_CONFIG - Configuracion fallida.
 
 END DESCRIPTION **********************************************************/
 
-int config_modo_txt(){
+int Config_modo_txt(){
 
    Enviar_CMD(CMD_MODO_TEXTO);    //configuracion para modo texto.
    if(Respuesta_Modem(ESPERO_OK, respuesta, TIEMPO) == ERR_TIEMPO)
