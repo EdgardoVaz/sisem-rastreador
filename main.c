@@ -7,7 +7,7 @@
 #use ucos2.lib
 
 #define BPS 19200
-#define tout 100
+#define tout 10
 #define TAM 200
 
 //Prototipos para las tasks
@@ -64,7 +64,7 @@ void task_SMS(void* pdata)
 		 // will be signaled by the task aware isr for serial port C
 		 // at the end of this file.
 		 OSSemPend(serCsem, 0, &err);
-
+       OSTimeDly(10);  //espera 10 ticks de reloj del RTOS (1Tick = 10ms).
        n_gsm = serCread(cns, sizeof(cns), tout);
        cns[n_gsm]='\0';
        printf("%s", cns);
