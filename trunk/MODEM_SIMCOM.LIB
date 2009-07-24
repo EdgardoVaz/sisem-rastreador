@@ -1,27 +1,26 @@
 /*** BeginHeader Modem_SIMCOM */
 
-#define CINBUFSIZE 255
+#define CINBUFSIZE  255
 #define COUTBUFSIZE 255
-#define TIEMPO 10
-#define TAMAÑO 200
-#define ERR_TIEMPO 11
+#define TIEMPO       10
+#define TAM         200
+#define ERR_TIEMPO   11
 #define ERR_MODO_TXT 21
-#define ERR_PROMPT 31
-#define ERR_CONFIG 41
-#define RESP_OK 51
-#define PARAM_OK 103
-#define ERR_PARAM 104
+#define ERR_PROMPT   31
+#define ERR_CONFIG   41
+#define RESP_OK      51
+#define PARAM_OK     61
+#define ERR_PARAM    71
+#define ERR_NUM_CEL  81
 
 static const char CMD_MODO_TEXTO[]="AT+CMGF=1\r";
 static const char BATERIA[]="AT+CBC\r";
 static const char ESPERO_OK[]="OK\r\n";
 static const char MSJ_ERR_PARAM[]="Parametro\nincorrecto\n\032"; //Ctrol-Z = \032
-static const char MSJ_COORD[]="Latitud: \nLongitud: \nTiempo: \n\032";
+static const char MSJ_NO_COORD[]="No hay coordenadas disponibles\n\032";
 static int n_gsm;
 
-char respuesta[TAMAÑO];
-char txt_msj[TAMAÑO];
-char num_cel[16];
+char respuesta[TAM];
 
 /*** EndHeader */
 
@@ -416,13 +415,13 @@ int Enviar_SMS(char *numero, char *sms){
 
 
 /*** BeginHeader Recibir_SMS */
-int Recibir_SMS(char *ind_msj);
+int Recibir_SMS(char *ind_msj, char *txt_msj);
 /*** EndHeader */
 
 /* START FUNCTION DESCRIPTION ********************************************
 Recibir_SMS                                 <Modem_SIMCOM.LIB>
 
-SYNTAX:			int Recibir_SMS(char *ind_msj);
+SYNTAX:			int Recibir_SMS(char *ind_msj, char *txt_msj);
 
 DESCRIPTION: 	Recibe el identificador de un nuevo mensaje SMS y devuelve en
 					un puntero el texto del mensaje incluyendo el encabezado.
@@ -434,7 +433,7 @@ RETURN VALUE:	RESP_OK - Mensaje recibido.
 
 END DESCRIPTION **********************************************************/
 
-int Recibir_SMS(char *ind_msj){
+int Recibir_SMS(char *ind_msj, char *txt_msj){
 
 	static char CMD_CMGR[15];
    strcpy(CMD_CMGR,"AT+CMGR=");
@@ -450,7 +449,7 @@ int Recibir_SMS(char *ind_msj){
 
 
 /*** BeginHeader Procesar_SMS */
-int Procesar_SMS(char *sms);
+int Procesar_SMS(char *numero, char *sms);
 /*** EndHeader */
 
 /* START FUNCTION DESCRIPTION ********************************************
@@ -469,20 +468,21 @@ RETURN VALUE:	PARAM_OK - Mensaje con palabra clave correcta.
 
 END DESCRIPTION **********************************************************/
 
-int Procesar_SMS(char *sms){
+int Procesar_SMS(char *numero, char *sms){
 
    char *encontre;
    char *ptr_num;
    auto int i;
    i=0;
    encontre = strstr(sms,"Posicion");
-   ptr_num = strstr(sms,"\"+598");
+   if((ptr_num = strstr(sms,"\"+598")) == '\0')
+   	return ERR_NUM_CEL;
    for (i=0;i<14;i++)
    {
-   	num_cel[i] = *(ptr_num + i);
+   	numero[i] = *(ptr_num + i);
    }
-   num_cel[14] = '\r';
-   num_cel[15] = '\0';      //indica el final del numero del remitente
+   numero[14] = '\r';
+   numero[15] = '\0';      //indica el final del numero del remitente
    if(encontre != '\0')
    	return PARAM_OK;
    else return ERR_PARAM;

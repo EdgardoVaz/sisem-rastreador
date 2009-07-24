@@ -1,6 +1,6 @@
 #define OS_MAX_TASKS		2
-#define OS_MAX_EVENTS	2
-#define OS_SEM_EN 	   2
+#define OS_MAX_EVENTS	1
+#define OS_SEM_EN 	   1
 
 #use Modem_SIMCOM.lib
 #use GPS_ET332.lib
@@ -8,39 +8,37 @@
 
 #define BPS 19200
 #define tout 10
-#define TAM 200
+//#define TAM 200
 
 //Prototipos para las tasks
 	void task_GPS(void* pdata);
 	void task_SMS(void* pdata);
 
-//Semaphore signaled by task aware isr
+//Semaforo señalado por task aware isr
 	OS_EVENT* serCsem;
-	OS_EVENT* Semaf;
+
 
 shared char msj[TAM];
 shared int coord_ok;
 
 void main(){
 
-// Initialize internal OS data structures
+// Inicializa la estructura interna del OS.
 	OSInit();
 
-// Create the three tasks with no initial data and 512 byte stacks
+// Crea dos tareas sin valores iniciales y 512 byte de stacks
 	OSTaskCreate(task_GPS, NULL, 512, 1);
 	OSTaskCreate(task_SMS, NULL, 512, 0);
 
-	// create semaphore used by taskSMS
+// Crea el semaforo usado por taskSMS
 	serCsem = OSSemCreate(0);
-   ///Creo semaforos para el arreglo posiciones.
-   Semaf = OSSemCreate(1);
 
-   // display start message
+// Despliega mensaje inicial del RTOS
 	printf("*********************************\n");
-	printf("Start MuCOS-II\n");
+	printf("FILIPHIDES v1.0\n");
 	printf("*********************************\n");
 
-	// begin multi-tasking (execution will be transferred to task0)
+// Arranca el sistema operativo
 	OSStart();
 }
 
@@ -52,10 +50,11 @@ void task_SMS(void* pdata)
    static char cns[100];
 	auto char *num, *n;
 	static char num_msg[4];
-   static int k;
+	static char txt_msj[TAM];
+	static char num_cel[16];
 // Inicializo el Modem
    Inicio_Modem(BPS);
-// clear rx and tx data buffers
+// limpia el buffer rx y tx del puerto serial C
 	serCrdFlush();
 	serCwrFlush();
 	for(;;)
@@ -66,40 +65,55 @@ void task_SMS(void* pdata)
 		 OSSemPend(serCsem, 0, &err);
        OSTimeDly(10);  //espera 10 ticks de reloj del RTOS (1Tick = 10ms).
        n_gsm = serCread(cns, sizeof(cns), tout);
-       cns[n_gsm]='\0';
+       cns[n_gsm]='\0';     //para no volver a procesar otra vez lo que quedo de la ocación anterior
        printf("%s", cns);
        n_gsm = 0;
-       if((num = strstr(cns, "+CMTI:")) != '\0')
+       num = cns;
+       while((num = strstr(num, "+CMTI:")) != '\0')    //proceso todos los sms leidos en una instancia
        {
        		num += 12;
             num_msg[0]=num[0];     //Selecciona el nº de sms recibido
 	        	num_msg[1]=num[1];
 	        	num_msg[2]='\r';
 	        	num_msg[3]='\0';
-           	Recibir_SMS(num_msg);
-            if(Procesar_SMS(txt_msj) == PARAM_OK)
-           	{
-            		if(coord_ok)
-               	{
-                        k = Enviar_SMS(num_cel, msj);   //enviar respuesta con coordenadas
-                        printf("valor de k: %d\n\n", k);
-                        OSTimeDlySec(10);
-                        if(Respuesta_Modem(ESPERO_OK, respuesta, TIEMPO) == RESP_OK)
-                        	printf("Mensaje respuesta de coordenadas enviado\n");
-           		   		else printf("Mensaje respuesta de coordenadas no enviado\n");
-                   }
-                   else printf("No hay coordenadas disponibles\n\n");
-            }
-            else
+
+            Recibir_SMS(num_msg, txt_msj);
+            switch(Procesar_SMS(num_cel, txt_msj))
             {
-            		 Enviar_SMS(num_cel, MSJ_ERR_PARAM); //enviar mensaje indicando error de parametro
-               	 OSTimeDlySec(10);
-                   if(Respuesta_Modem(ESPERO_OK, respuesta, TIEMPO) == RESP_OK)
-               	    printf("Mensaje respuesta de error enviado\n");
-               	 else printf("Mensaje respuesta de error no enviado\n");
+            	case PARAM_OK:
+                             		if(coord_ok)
+               				  		{
+                        				Enviar_SMS(num_cel, msj);   //enviar respuesta con coordenadas
+                        				OSTimeDlySec(10);
+                        				if(Respuesta_Modem(ESPERO_OK, respuesta, TIEMPO) == RESP_OK)
+                        					printf("Mensaje con coordenadas, enviado\n");
+           		   						else printf("Mensaje con coordenadas, no enviado\n");
+                   					}
+                                 else
+                                 {
+                                    Enviar_SMS(num_cel, MSJ_NO_COORD);   //enviar respuesta con coordenadas
+                        				OSTimeDlySec(10);
+                        				if(Respuesta_Modem(ESPERO_OK, respuesta, TIEMPO) == RESP_OK)
+                        					printf("No hay coordenadas, enviado\n");
+           		   						else printf("No hay coordenadas, no enviado\n");
+                                 }
+                              	break;
+               case ERR_PARAM:
+                              	Enviar_SMS(num_cel, MSJ_ERR_PARAM); //enviar mensaje indicando error de parametro
+               	 					OSTimeDlySec(10);
+                   					if(Respuesta_Modem(ESPERO_OK, respuesta, TIEMPO) == RESP_OK)
+               	    					printf("Mensaje parametro incorrecto, enviado\n");
+               	 					else printf("Mensaje parametro incorrecto, no enviado\n");
+                              	break;
+               case ERR_NUM_CEL:
+                                 printf("Error al obtener el numero de celular\n\n");
+                                 break;
+               default:
+                                 printf("Error grave al procesar el mensaje\n\n");
             }
             Borrar_SMS(num_msg); //Borra el mensaje previamente procesado
        }
+
    }//Fin del loop
 }//Fin task_SMS
 
@@ -108,9 +122,10 @@ void task_SMS(void* pdata)
 void task_GPS(void* pdata)
 {
 	static char data[TAM];
+
 // Inicializo el GPS
    InicializarGPS();
-// clear rx and tx data buffers
+// limpia el buffer rx y tx del puerto serial D
 	serDrdFlush();
 	serDwrFlush();
    for(;;)
@@ -121,6 +136,7 @@ void task_GPS(void* pdata)
    	 coord_ok = ProcesarGPS(data, n_gps);
    	 sprintf(msj, "Latitud: %s\nLongitud: %s\nHora: %s\nFecha: %s\n\032", latitud, longitud, hora_utc, fecha);
    	 n_gps = 0;
+
    }//Fin del loop
 }//Fin task_GPS
 
