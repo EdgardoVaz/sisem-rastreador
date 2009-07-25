@@ -6,9 +6,10 @@
 #use GPS_ET332.lib
 #use ucos2.lib
 
-#define BPS 19200
-#define tout 10
-//#define TAM 200
+#define BPS  19200
+#define tout    10
+#define ON       1
+#define OFF      0
 
 //Prototipos para las tasks
 	void task_GPS(void* pdata);
@@ -57,6 +58,9 @@ void task_SMS(void* pdata)
 // limpia el buffer rx y tx del puerto serial C
 	serCrdFlush();
 	serCwrFlush();
+
+   ModoSleep(ON); //pone el modem en bajo consumo
+
 	for(;;)
 	{
 		 // wait for a byte to arrive at serial port.  This semaphore
@@ -76,6 +80,9 @@ void task_SMS(void* pdata)
 	        	num_msg[1]=num[1];
 	        	num_msg[2]='\r';
 	        	num_msg[3]='\0';
+
+            ModoSleep(OFF);   //despierto el modem
+            OSTimeDly(3);     //espera 3 ticks de reloj del RTOS (1Tick = 10ms) para despertarse.
 
             Recibir_SMS(num_msg, txt_msj);
             switch(Procesar_SMS(num_cel, txt_msj))
@@ -113,7 +120,7 @@ void task_SMS(void* pdata)
             }
             Borrar_SMS(num_msg); //Borra el mensaje previamente procesado
        }
-
+       ModoSleep(ON); //pone el modem en bajo consumo nuevamente.
    }//Fin del loop
 }//Fin task_SMS
 
